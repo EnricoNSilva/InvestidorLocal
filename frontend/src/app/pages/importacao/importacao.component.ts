@@ -1,5 +1,6 @@
-﻿import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CarteiraService } from '../../core/services/carteira.service';
 import { RetornoImportacao } from '../../core/models/investimento.models';
@@ -7,12 +8,26 @@ import { RetornoImportacao } from '../../core/models/investimento.models';
 @Component({
   selector: 'app-importacao',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './importacao.component.html',
   styleUrl: './importacao.component.scss'
 })
 export class ImportacaoComponent {
-  private readonly carteiraService = inject(CarteiraService);
+  readonly carteiraService = inject(CarteiraService);
+
+  readonly carteiraAtiva = computed(() => {
+    const ativas = this.carteiraService.carteiras();
+    const id = this.carteiraService.carteiraAtivaId();
+    return ativas.find(c => c.id === id) || ativas[0] || null;
+  });
+
+  onCarteiraChange(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const novoId = Number(select.value);
+    if (!isNaN(novoId)) {
+      this.carteiraService.selecionarCarteira(novoId);
+    }
+  }
 
   // Estado B3 Transferências / Movimentação
   readonly fileB3Transf = signal<File | null>(null);

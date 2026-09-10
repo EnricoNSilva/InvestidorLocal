@@ -3,6 +3,7 @@ from decimal import Decimal, getcontext
 from sqlalchemy.orm import Session
 
 from app.models.ativo import Ativo
+from app.models.carteira import Carteira
 from app.models.transacao import Transacao
 from app.models.posicao import PosicaoConsolidada
 from app.models.enums import TipoOperacao
@@ -17,12 +18,22 @@ class PortfolioError(Exception):
     """Exceção para erros de regras de negócio do portfólio."""
     pass
 
+def obter_ou_criar_carteira_padrao(db: Session, carteira_id: int = 1, nome_padrao: str = "Carteira Principal") -> Carteira:
+    """Garante que a carteira solicitada ou a carteira padrão ID=1 exista no banco."""
+    carteira = db.query(Carteira).filter(Carteira.id == carteira_id).first()
+    if not carteira:
+        # Se tentou ID 1 ou qualquer ID e não achou, cria
+        carteira = Carteira(id=carteira_id, nome=nome_padrao, descricao="Carteira inicial padrão")
+        db.add(carteira)
+        db.flush()
+    return carteira
+
 def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao:
     """
-    Processa uma transação financeira de compra ou venda com atomicidade:
-    1. Valida a existência do ativo.
+    Processa uma transação financeira de compra ou venda com atomicidade para uma Carteira específica:
+    1. Valida a existência do ativo e da carteira.
     2. Insere a nova transação no banco.
-    3. Busca ou inicializa a PosicaoConsolidada do ativo correspondente.
+    3. Busca ou inicializa a PosicaoConsolidada do ativo na carteira correspondente.
     4. Se BUY ou TRANSFERENCIA_ENTRADA:
        - Incrementa quantidade_saldo.
        - Calcula custo da operação em BRL (incluindo taxas e eventual PTAX).
@@ -41,8 +52,14 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
     if not ativo:
         raise PortfolioError(f"Ativo com ID {transacao_in.ativo_id} não encontrado.")
 
-    # 1. Cria a entidade Transacao
+    cid = transacao_in.carteira_id if transacao_in.carteira_id is not None else 1
+    carteira = db.query(Carteira).filter(Carteira.id == cid).first()
+    if not carteira:
+        carteira = obter_ou_criar_carteira_padrao(db, carteira_id=cid)
+
+    # 1. Cria a entidade Transacao vinculada à carteira
     db_transacao = Transacao(
+        carteira_id=carteira.id,
         ativo_id=transacao_in.ativo_id,
         data_hora=transacao_in.data_hora,
         tipo_operacao=transacao_in.tipo_operacao,
@@ -55,14 +72,18 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
     )
     db.add(db_transacao)
 
-    # 2. Busca ou cria PosicaoConsolidada
+    # 2. Busca ou cria PosicaoConsolidada para este ativo e esta carteira
     posicao = (
         db.query(PosicaoConsolidada)
-        .filter(PosicaoConsolidada.ativo_id == transacao_in.ativo_id)
+        .filter(
+            PosicaoConsolidada.carteira_id == carteira.id,
+            PosicaoConsolidada.ativo_id == transacao_in.ativo_id
+        )
         .first()
     )
     if not posicao:
         posicao = PosicaoConsolidada(
+            carteira_id=carteira.id,
             ativo_id=transacao_in.ativo_id,
             quantidade_saldo=ZERO,
             custo_total_brl=ZERO,
@@ -89,7 +110,7 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
     elif transacao_in.tipo_operacao == TipoOperacao.SELL:
         if transacao_in.quantidade > posicao.quantidade_saldo:
             raise PortfolioError(
-                f"Saldo insuficiente para venda de {ativo.ticker}. "
+                f"Saldo insuficiente na carteira '{carteira.nome}' para venda de {ativo.ticker}. "
                 f"Saldo disponível: {posicao.quantidade_saldo}, Quantidade solicitada: {transacao_in.quantidade}"
             )
 
@@ -98,7 +119,7 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
         novo_saldo = posicao.quantidade_saldo - transacao_in.quantidade
         novo_custo_total = posicao.custo_total_brl - custo_baixa
 
-        # Se zerar o saldo (ou resíduos de arredondamento próximos de 0)
+        # Se zerar o saldo
         if novo_saldo <= ZERO:
             posicao.quantidade_saldo = ZERO
             posicao.custo_total_brl = ZERO
@@ -106,7 +127,6 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
         else:
             posicao.quantidade_saldo = novo_saldo
             posicao.custo_total_brl = novo_custo_total
-            # O Preço Médio unitário permanece inalterado na venda parcial
 
     posicao.data_atualizacao = datetime.utcnow()
 

@@ -1,8 +1,32 @@
-﻿<div class="importacao-view">
+<div class="importacao-view">
   <div class="view-header">
     <div>
       <h1 class="view-title">Importação de Relatórios e Extratos</h1>
       <p class="view-subtitle">Alimente sua base local com arquivos .xlsx oficiais da B3 e Binance</p>
+    </div>
+
+    <!-- Carteira Destino -->
+    <div class="destino-carteira-box">
+      <label for="importCarteiraSelect" class="destino-label">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 7h-9M14 17H5M12 12H3"></path>
+          <rect x="2" y="3" width="20" height="18" rx="3"></rect>
+        </svg>
+        <span>Importar para:</span>
+      </label>
+      <div class="select-wrapper">
+        <select
+          id="importCarteiraSelect"
+          class="carteira-dropdown"
+          [value]="carteiraService.carteiraAtivaId()"
+          (change)="onCarteiraChange($event)"
+        >
+          <option *ngFor="let c of carteiraService.carteiras()" [value]="c.id">
+            {{ c.nome }}
+          </option>
+        </select>
+        <span class="dropdown-arrow">▼</span>
+      </div>
     </div>
   </div>
 

@@ -1,8 +1,8 @@
-import io
+﻿import io
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import BinaryIO, Dict, List, Tuple, Union
+from typing import BinaryIO, Dict, List, Optional, Tuple, Union
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,11 @@ def to_decimal(val) -> Decimal:
     except Exception:
         return Decimal("0.0")
 
-def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> Tuple[List[Transacao], List[str]]:
+def processar_planilha_b3(
+    db: Session,
+    file_content: Union[BinaryIO, bytes],
+    carteira_id: Optional[int] = 1
+) -> Tuple[List[Transacao], List[str]]:
     if isinstance(file_content, bytes):
         file_content = io.BytesIO(file_content)
 
@@ -121,6 +125,7 @@ def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> 
             data_hora = data_hora.to_pydatetime()
 
         transacao_in = TransacaoCreate(
+            carteira_id=carteira_id or 1,
             ativo_id=ativo.id,
             data_hora=data_hora,
             tipo_operacao=tipo_operacao,

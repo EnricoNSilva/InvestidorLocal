@@ -1,4 +1,4 @@
-﻿import io
+import io
 import json
 import urllib.request
 from datetime import datetime, date, timedelta, timezone
@@ -60,6 +60,7 @@ def to_decimal(val) -> Decimal:
 def processar_planilha_binance(
     db: Session,
     file_content: Union[BinaryIO, bytes],
+    carteira_id: Optional[int] = 1,
     ticker_base: str = "BTC",
     nome_ativo: str = "Bitcoin"
 ) -> List[Transacao]:
@@ -149,6 +150,7 @@ def processar_planilha_binance(
                 fee_brl = fee * ptax_used
 
         transacao_in = TransacaoCreate(
+            carteira_id=carteira_id or 1,
             ativo_id=ativo.id,
             data_hora=dt_obj,
             tipo_operacao=tipo_operacao,

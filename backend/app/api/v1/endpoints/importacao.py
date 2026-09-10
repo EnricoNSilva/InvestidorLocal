@@ -1,5 +1,5 @@
-﻿from typing import Dict, Any
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+﻿from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -12,6 +12,7 @@ router = APIRouter()
 @router.post("/b3", summary="Upload e ingestão de negociações da B3 (.xlsx)")
 async def upload_b3(
     file: UploadFile = File(..., description="Arquivo Excel (.xlsx) de negociações da B3"),
+    carteira_id: Optional[int] = Query(default=1, description="ID da carteira de destino"),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     if not file.filename.endswith((".xlsx", ".xls")):
@@ -22,11 +23,12 @@ async def upload_b3(
 
     try:
         content = await file.read()
-        transacoes, pendencias = processar_planilha_b3(db=db, file_content=content)
+        transacoes, pendencias = processar_planilha_b3(db=db, file_content=content, carteira_id=carteira_id)
         return {
             "status": "success",
             "origem": "B3",
             "filename": file.filename,
+            "carteira_id": carteira_id,
             "transacoes_processadas": len(transacoes),
             "pendencias": pendencias,
             "mensagem": f"{len(transacoes)} transações da B3 importadas com sucesso. {len(pendencias)} pendências detectadas."
@@ -40,6 +42,7 @@ async def upload_b3(
 @router.post("/b3-transferencias", summary="Upload e ingestão de transferências/movimentações de custódia da B3 (.xlsx)")
 async def upload_b3_transferencias(
     file: UploadFile = File(..., description="Arquivo Excel (.xlsx) de movimentação/custódia da B3"),
+    carteira_id: Optional[int] = Query(default=1, description="ID da carteira de destino"),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     if not file.filename.endswith((".xlsx", ".xls")):
@@ -50,13 +53,14 @@ async def upload_b3_transferencias(
 
     try:
         content = await file.read()
-        resultado = processar_planilha_movimentacao_b3(db=db, file_content=content)
+        resultado = processar_planilha_movimentacao_b3(db=db, file_content=content, carteira_id=carteira_id)
         transacoes = resultado["transacoes"]
         avisos = resultado["avisos"]
         return {
             "status": "success",
             "origem": "B3-Transferencias",
             "filename": file.filename,
+            "carteira_id": carteira_id,
             "transferencias_processadas": len(transacoes),
             "avisos": avisos,
             "mensagem": f"{len(transacoes)} entradas/transferências de custódia consolidadas com sucesso."
@@ -70,6 +74,7 @@ async def upload_b3_transferencias(
 @router.post("/binance", summary="Upload e ingestão de negociações da Binance (.xlsx)")
 async def upload_binance(
     file: UploadFile = File(..., description="Arquivo Excel (.xlsx) da Binance com a aba 'Order History'"),
+    carteira_id: Optional[int] = Query(default=1, description="ID da carteira de destino"),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     if not file.filename.endswith((".xlsx", ".xls")):
@@ -80,11 +85,12 @@ async def upload_binance(
 
     try:
         content = await file.read()
-        transacoes = processar_planilha_binance(db=db, file_content=content)
+        transacoes = processar_planilha_binance(db=db, file_content=content, carteira_id=carteira_id)
         return {
             "status": "success",
             "origem": "Binance",
             "filename": file.filename,
+            "carteira_id": carteira_id,
             "transacoes_processadas": len(transacoes),
             "mensagem": f"{len(transacoes)} ordens da Binance processadas na fila cronológica única com PTAX."
         }

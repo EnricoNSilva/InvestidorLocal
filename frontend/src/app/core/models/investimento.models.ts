@@ -1,4 +1,4 @@
-﻿export type TipoAtivo = 'Acao' | 'FII' | 'Cripto' | 'RendaFixa';
+export type TipoAtivo = 'Acao' | 'FII' | 'Cripto' | 'RendaFixa';
 
 export type TipoOperacao = 'BUY' | 'SELL' | 'TRANSFERENCIA_ENTRADA';
 
@@ -12,8 +12,16 @@ export interface Ativo {
   updated_at?: string;
 }
 
+export interface Carteira {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  created_at?: string;
+}
+
 export interface PosicaoConsolidada {
   id: number;
+  carteira_id: number;
   ativo_id: number;
   quantidade_saldo: string | number;
   custo_total_brl: string | number;

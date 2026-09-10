@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import String, DateTime, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,8 +27,8 @@ class Ativo(Base):
     transacoes: Mapped[List["Transacao"]] = relationship(
         "Transacao", back_populates="ativo", cascade="all, delete-orphan"
     )
-    posicao: Mapped[Optional["PosicaoConsolidada"]] = relationship(
-        "PosicaoConsolidada", back_populates="ativo", uselist=False, cascade="all, delete-orphan"
+    posicoes: Mapped[List["PosicaoConsolidada"]] = relationship(
+        "PosicaoConsolidada", back_populates="ativo", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

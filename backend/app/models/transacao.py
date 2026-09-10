@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import String, DateTime, Enum, ForeignKey, Numeric
@@ -8,11 +8,15 @@ from app.models.enums import TipoOperacao
 
 if TYPE_CHECKING:
     from app.models.ativo import Ativo
+    from app.models.carteira import Carteira
 
 class Transacao(Base):
     __tablename__ = "transacoes"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    carteira_id: Mapped[int] = mapped_column(
+        ForeignKey("carteiras.id", ondelete="CASCADE"), default=1, index=True, nullable=False
+    )
     ativo_id: Mapped[int] = mapped_column(ForeignKey("ativos.id", ondelete="CASCADE"), index=True, nullable=False)
     data_hora: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)
     tipo_operacao: Mapped[TipoOperacao] = mapped_column(Enum(TipoOperacao), nullable=False)
@@ -33,6 +37,7 @@ class Transacao(Base):
 
     # Relacionamentos
     ativo: Mapped["Ativo"] = relationship("Ativo", back_populates="transacoes")
+    carteira: Mapped["Carteira"] = relationship("Carteira", back_populates="transacoes")
 
     def __repr__(self) -> str:
         return f"<Transacao {self.tipo_operacao.value} {self.quantidade} @ {self.preco_unitario} {self.moeda}>"

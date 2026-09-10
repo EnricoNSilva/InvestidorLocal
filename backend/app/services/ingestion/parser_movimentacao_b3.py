@@ -37,6 +37,7 @@ def eh_transferencia_entrada(tipo_mov: str) -> bool:
 def processar_planilha_movimentacao_b3(
     db: Session,
     file_content: Union[BinaryIO, bytes],
+    carteira_id: Optional[int] = 1,
     preco_fallback_padrao: Decimal = Decimal("1.0")
 ) -> Dict[str, Union[List[Transacao], List[str]]]:
     """
@@ -152,6 +153,7 @@ def processar_planilha_movimentacao_b3(
             data_hora = data_hora.to_pydatetime()
 
         transacao_in = TransacaoCreate(
+            carteira_id=carteira_id or 1,
             ativo_id=ativo.id,
             data_hora=data_hora,
             tipo_operacao=TipoOperacao.TRANSFERENCIA_ENTRADA,

@@ -1,22 +1,39 @@
-﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CarteiraService } from '../../core/services/carteira.service';
-import { PosicaoConsolidada } from '../../core/models/investimento.models';
+import { PosicaoConsolidada, Carteira } from '../../core/models/investimento.models';
 
 @Component({
   selector: 'app-carteira',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './carteira.component.html',
   styleUrl: './carteira.component.scss'
 })
 export class CarteiraComponent implements OnInit {
-  private readonly carteiraService = inject(CarteiraService);
+  readonly carteiraService = inject(CarteiraService);
 
   readonly posicoes = signal<PosicaoConsolidada[]>([]);
   readonly loading = signal<boolean>(true);
   readonly errorMessage = signal<string | null>(null);
+
+  // Controle de Modal / Form de Nova Carteira
+  readonly showModalNovaCarteira = signal<boolean>(false);
+  novoNomeCarteira = '';
+  novaDescricaoCarteira = '';
+  readonly salvandoCarteira = signal<boolean>(false);
+  readonly erroModalCarteira = signal<string | null>(null);
+
+  // Controle de Exclusão de Carteira
+  readonly excluindoCarteira = signal<boolean>(false);
+
+  readonly carteiraAtiva = computed(() => {
+    const ativas = this.carteiraService.carteiras();
+    const id = this.carteiraService.carteiraAtivaId();
+    return ativas.find(c => c.id === id) || ativas[0] || null;
+  });
 
   readonly totalPatrimonioCusto = computed(() => {
     return this.posicoes().reduce((acc, pos) => {
@@ -29,15 +46,33 @@ export class CarteiraComponent implements OnInit {
 
   readonly totalAtivos = computed(() => this.posicoes().length);
 
+  constructor() {
+    // Reage automaticamente à mudança da carteira ativa
+    effect(() => {
+      const activeId = this.carteiraService.carteiraAtivaId();
+      if (activeId) {
+        this.carregarPosicoes(activeId);
+      }
+    });
+  }
+
   ngOnInit(): void {
     this.carregarPosicoes();
   }
 
-  carregarPosicoes(): void {
+  onCarteiraChange(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const novoId = Number(select.value);
+    if (!isNaN(novoId)) {
+      this.carteiraService.selecionarCarteira(novoId);
+    }
+  }
+
+  carregarPosicoes(carteiraId?: number): void {
     this.loading.set(true);
     this.errorMessage.set(null);
 
-    this.carteiraService.getPosicoes(true).subscribe({
+    this.carteiraService.getPosicoes(carteiraId, true).subscribe({
       next: (dados) => {
         this.posicoes.set(dados);
         this.loading.set(false);
@@ -46,6 +81,68 @@ export class CarteiraComponent implements OnInit {
         console.error('Erro ao carregar posições:', err);
         this.errorMessage.set('Não foi possível carregar a carteira. Verifique se o backend está ativo.');
         this.loading.set(false);
+      }
+    });
+  }
+
+  abrirModalNovaCarteira(): void {
+    this.novoNomeCarteira = '';
+    this.novaDescricaoCarteira = '';
+    this.erroModalCarteira.set(null);
+    this.showModalNovaCarteira.set(true);
+  }
+
+  fecharModalNovaCarteira(): void {
+    this.showModalNovaCarteira.set(false);
+    this.erroModalCarteira.set(null);
+  }
+
+  salvarNovaCarteira(): void {
+    if (!this.novoNomeCarteira.trim()) {
+      this.erroModalCarteira.set('O nome da carteira é obrigatório.');
+      return;
+    }
+
+    this.salvandoCarteira.set(true);
+    this.erroModalCarteira.set(null);
+
+    this.carteiraService.criarCarteira({
+      nome: this.novoNomeCarteira.trim(),
+      descricao: this.novaDescricaoCarteira.trim() || undefined
+    }).subscribe({
+      next: () => {
+        this.salvandoCarteira.set(false);
+        this.fecharModalNovaCarteira();
+      },
+      error: (err) => {
+        this.salvandoCarteira.set(false);
+        const msg = err.error?.detail || 'Erro ao criar nova carteira.';
+        this.erroModalCarteira.set(msg);
+      }
+    });
+  }
+
+  confirmarExcluirCarteira(): void {
+    const carteira = this.carteiraAtiva();
+    if (!carteira) return;
+
+    if (this.carteiraService.carteiras().length <= 1) {
+      alert('Você possui apenas uma carteira cadastrada. Não é possível excluí-la.');
+      return;
+    }
+
+    const confirmou = confirm(`Deseja realmente excluir a carteira "${carteira.nome}"?\nTodas as posições e transações vinculadas a ela serão excluídas definitivamente.`);
+    if (!confirmou) return;
+
+    this.excluindoCarteira.set(true);
+    this.carteiraService.excluirCarteira(carteira.id).subscribe({
+      next: () => {
+        this.excluindoCarteira.set(false);
+      },
+      error: (err) => {
+        this.excluindoCarteira.set(false);
+        const msg = err.error?.detail || 'Erro ao excluir carteira.';
+        alert(msg);
       }
     });
   }
