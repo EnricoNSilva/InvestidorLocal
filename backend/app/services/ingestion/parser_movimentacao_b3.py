@@ -1,4 +1,4 @@
-﻿import io
+import io
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -67,6 +67,8 @@ def processar_planilha_movimentacao_b3(
             col_map["quantidade"] = col
         elif "preço" in norm or "preco" in norm or "valor unit" in norm or "cotacao" in norm:
             col_map["preco"] = col
+        elif "entrada" in norm or "saida" in norm or "saída" in norm or "sentido" in norm:
+            col_map["entrada_saida"] = col
         elif "valor total" in norm or "operacao" in norm or "valor da op" in norm:
             col_map["valor_total"] = col
 
@@ -87,6 +89,12 @@ def processar_planilha_movimentacao_b3(
     avisos: List[str] = []
 
     for _, row in df.iterrows():
+        # Filtro de sentido: ignora Débito/Saída
+        if "entrada_saida" in col_map:
+            sentido_str = str(row[col_map["entrada_saida"]]).strip().upper()
+            if "DEBITO" in sentido_str or "DÉBITO" in sentido_str or "SAIDA" in sentido_str or "SAÍDA" in sentido_str:
+                continue
+
         # Filtro de tipo de movimentação se a coluna estiver presente
         if "movimentacao" in col_map:
             mov_str = str(row[col_map["movimentacao"]])

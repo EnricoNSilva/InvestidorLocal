@@ -1,4 +1,4 @@
-﻿import io
+import io
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -26,14 +26,22 @@ def to_decimal(val) -> Decimal:
         return Decimal("0.0")
     if isinstance(val, (int, str)):
         cleaned = str(val).strip().replace("R$", "").replace(" ", "")
+        if cleaned in ("", "-", "--", "N/A", "NA", "NAN", "NONE", "null"):
+            return Decimal("0.0")
         if "," in cleaned and "." in cleaned:
             cleaned = cleaned.replace(".", "").replace(",", ".")
         elif "," in cleaned:
             cleaned = cleaned.replace(",", ".")
-        return Decimal(cleaned)
+        try:
+            return Decimal(cleaned)
+        except Exception:
+            return Decimal("0.0")
     if isinstance(val, float):
         return Decimal(f"{val:.8f}".rstrip("0").rstrip(".") if "." in f"{val:.8f}" else f"{val:.8f}")
-    return Decimal(str(val))
+    try:
+        return Decimal(str(val))
+    except Exception:
+        return Decimal("0.0")
 
 def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> Tuple[List[Transacao], List[str]]:
     if isinstance(file_content, bytes):
