@@ -2,7 +2,7 @@
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import BinaryIO, List, Union
+from typing import BinaryIO, Dict, List, Tuple, Union
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from app.models.ativo import Ativo
 from app.models.enums import TipoAtivo, TipoOperacao
 from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
-from app.services.portfolio import processar_transacao
+from app.services.portfolio import processar_transacao, PortfolioError
 
 def inferir_tipo_ativo(ticker: str) -> TipoAtivo:
     clean_ticker = ticker.strip().upper()
@@ -35,7 +35,7 @@ def to_decimal(val) -> Decimal:
         return Decimal(f"{val:.8f}".rstrip("0").rstrip(".") if "." in f"{val:.8f}" else f"{val:.8f}")
     return Decimal(str(val))
 
-def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> List[Transacao]:
+def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> Tuple[List[Transacao], List[str]]:
     if isinstance(file_content, bytes):
         file_content = io.BytesIO(file_content)
 
@@ -69,7 +69,8 @@ def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> 
 
     df = df.sort_values("_data_dt").reset_index(drop=True)
 
-    transacoes_criadas = []
+    transacoes_criadas: List[Transacao] = []
+    pendencias: List[str] = []
 
     for _, row in df.iterrows():
         ticker_raw = str(row[col_map["ticker"]]).strip().upper()
@@ -123,7 +124,13 @@ def processar_planilha_b3(db: Session, file_content: Union[BinaryIO, bytes]) -> 
             ptax_utilizada=None
         )
 
-        tx = processar_transacao(db=db, transacao_in=transacao_in)
-        transacoes_criadas.append(tx)
+        try:
+            tx = processar_transacao(db=db, transacao_in=transacao_in)
+            transacoes_criadas.append(tx)
+        except PortfolioError as p_err:
+            db.rollback()
+            pendencias.append(
+                f"Operação {tipo_operacao.value} de {quantidade} {ticker} em {data_hora.strftime('%d/%m/%Y')}: {str(p_err)}"
+            )
 
-    return transacoes_criadas
+    return transacoes_criadas, pendencias

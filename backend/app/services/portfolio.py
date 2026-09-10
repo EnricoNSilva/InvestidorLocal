@@ -23,7 +23,7 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
     1. Valida a existência do ativo.
     2. Insere a nova transação no banco.
     3. Busca ou inicializa a PosicaoConsolidada do ativo correspondente.
-    4. Se BUY:
+    4. Se BUY ou TRANSFERENCIA_ENTRADA:
        - Incrementa quantidade_saldo.
        - Calcula custo da operação em BRL (incluindo taxas e eventual PTAX).
        - Soma ao custo_total_brl.
@@ -73,8 +73,8 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
     # Fator de conversão para BRL caso necessário
     fator_ptax = transacao_in.ptax_utilizada if transacao_in.ptax_utilizada is not None else Decimal("1.0")
 
-    if transacao_in.tipo_operacao == TipoOperacao.BUY:
-        # Custo da compra = (quantidade * preco_unitario) * fator_moeda + taxas_em_brl
+    if transacao_in.tipo_operacao in (TipoOperacao.BUY, TipoOperacao.TRANSFERENCIA_ENTRADA):
+        # Custo da aquisição/transferência = (quantidade * preco_unitario) * fator_moeda + taxas_em_brl
         custo_operacao = (transacao_in.quantidade * transacao_in.preco_unitario) * fator_ptax + transacao_in.taxas
         novo_saldo = posicao.quantidade_saldo + transacao_in.quantidade
         novo_custo_total = posicao.custo_total_brl + custo_operacao

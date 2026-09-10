@@ -1,4 +1,4 @@
-﻿.importacao-view {
+.importacao-view {
   display: flex;
   flex-direction: column;
   gap: 2rem;
@@ -47,6 +47,12 @@
       letter-spacing: 0.05em;
       padding: 0.2rem 0.5rem;
       border-radius: 4px;
+
+      &.b3-transf {
+        background: rgba(137, 87, 229, 0.15);
+        color: #bc8cff;
+        border: 1px solid rgba(137, 87, 229, 0.4);
+      }
 
       &.b3 {
         background: rgba(31, 111, 235, 0.15);
@@ -158,6 +164,14 @@
     &:disabled {
       opacity: 0.45;
       cursor: not-allowed;
+    }
+
+    &.btn-transf {
+      background-color: #6e40c9;
+
+      &:hover:not(:disabled) {
+        background-color: #8957e5;
+      }
     }
 
     &.btn-binance {

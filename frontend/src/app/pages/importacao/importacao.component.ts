@@ -14,7 +14,13 @@ import { RetornoImportacao } from '../../core/models/investimento.models';
 export class ImportacaoComponent {
   private readonly carteiraService = inject(CarteiraService);
 
-  // Estado B3
+  // Estado B3 Transferências / Movimentação
+  readonly fileB3Transf = signal<File | null>(null);
+  readonly loadingB3Transf = signal<boolean>(false);
+  readonly resultadoB3Transf = signal<RetornoImportacao | null>(null);
+  readonly erroB3Transf = signal<string | null>(null);
+
+  // Estado B3 Negociações
   readonly fileB3 = signal<File | null>(null);
   readonly loadingB3 = signal<boolean>(false);
   readonly resultadoB3 = signal<RetornoImportacao | null>(null);
@@ -25,6 +31,15 @@ export class ImportacaoComponent {
   readonly loadingBinance = signal<boolean>(false);
   readonly resultadoBinance = signal<RetornoImportacao | null>(null);
   readonly erroBinance = signal<string | null>(null);
+
+  onFileB3TransfSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.fileB3Transf.set(input.files[0]);
+      this.resultadoB3Transf.set(null);
+      this.erroB3Transf.set(null);
+    }
+  }
 
   onFileB3Selected(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -42,6 +57,27 @@ export class ImportacaoComponent {
       this.resultadoBinance.set(null);
       this.erroBinance.set(null);
     }
+  }
+
+  enviarB3Transferencias(): void {
+    const file = this.fileB3Transf();
+    if (!file) return;
+
+    this.loadingB3Transf.set(true);
+    this.erroB3Transf.set(null);
+
+    this.carteiraService.uploadB3Transferencias(file).subscribe({
+      next: (res) => {
+        this.resultadoB3Transf.set(res);
+        this.loadingB3Transf.set(false);
+      },
+      error: (err) => {
+        console.error('Erro na importação de transferências B3:', err);
+        const detail = err.error?.detail || 'Erro ao processar planilha de movimentações da B3.';
+        this.erroB3Transf.set(detail);
+        this.loadingB3Transf.set(false);
+      }
+    });
   }
 
   enviarB3(): void {

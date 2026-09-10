@@ -1,4 +1,4 @@
-﻿import { Injectable, inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Ativo, PosicaoConsolidada, RetornoImportacao } from '../models/investimento.models';
@@ -23,6 +23,12 @@ export class CarteiraService {
     const formData = new FormData();
     formData.append('file', file, file.name);
     return this.http.post<RetornoImportacao>(`${this.baseUrl}/importacao/b3`, formData);
+  }
+
+  uploadB3Transferencias(file: File): Observable<RetornoImportacao> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<RetornoImportacao>(`${this.baseUrl}/importacao/b3-transferencias`, formData);
   }
 
   uploadBinance(file: File): Observable<RetornoImportacao> {

@@ -7,13 +7,70 @@
   </div>
 
   <div class="cards-grid">
-    <!-- Card B3 -->
+    <!-- Card 1: B3 Transferências / Entradas de Custódia (NOVO) -->
+    <div class="import-card highlight-card">
+      <div class="card-header">
+        <div class="badge-source b3-transf">B3 - MOVIMENTAÇÃO / ENTRADA INICIAL</div>
+        <h2 class="card-title">Transferências de Custódia B3</h2>
+        <p class="card-desc">
+          Planilha de <strong>Movimentação</strong> da B3. Importe primeiro para registrar doações, transferências de outra conta ou saldo inicial.
+        </p>
+      </div>
+
+      <div class="upload-zone" [class.has-file]="fileB3Transf()">
+        <input type="file" id="inputB3Transf" (change)="onFileB3TransfSelected($event)" accept=".xlsx, .xls" class="file-input" />
+        <label for="inputB3Transf" class="file-label">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <span *ngIf="!fileB3Transf()" class="label-text">Selecione o arquivo de movimentação (.xlsx)</span>
+          <span *ngIf="fileB3Transf()" class="label-selected">{{ fileB3Transf()?.name }}</span>
+        </label>
+      </div>
+
+      <div class="card-actions">
+        <button class="btn-submit btn-transf" (click)="enviarB3Transferencias()" [disabled]="!fileB3Transf() || loadingB3Transf()">
+          <span *ngIf="loadingB3Transf()" class="spinner-inline"></span>
+          <span>{{ loadingB3Transf() ? 'Processando Entradas...' : 'Processar Transferências B3' }}</span>
+        </button>
+      </div>
+
+      <!-- Feedback de Sucesso -->
+      <div *ngIf="resultadoB3Transf()" class="feedback-box success">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <div>
+          <strong>Sucesso!</strong>
+          <p>{{ resultadoB3Transf()?.mensagem }}</p>
+        </div>
+      </div>
+
+      <!-- Feedback de Erro -->
+      <div *ngIf="erroB3Transf()" class="feedback-box error">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <div>
+          <strong>Erro no processamento:</strong>
+          <p>{{ erroB3Transf() }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: B3 Negociações -->
     <div class="import-card">
       <div class="card-header">
-        <div class="badge-source b3">B3 - BRASIL BOLSA BALCÃO</div>
+        <div class="badge-source b3">B3 - NEGOCIAÇÕES REGULARES</div>
         <h2 class="card-title">Negociações da B3</h2>
         <p class="card-desc">
-          Planilha Excel exportada da <strong>Área do Investidor da B3</strong> contendo histórico de negociações de Ações, FIIs e ETFs.
+          Planilha Excel exportada da aba <strong>Negociação de Ativos</strong> contendo compras e vendas de Ações, FIIs e ETFs.
         </p>
       </div>
 
@@ -26,7 +83,7 @@
             <line x1="12" y1="18" x2="12" y2="12"></line>
             <line x1="9" y1="15" x2="15" y2="15"></line>
           </svg>
-          <span *ngIf="!fileB3()" class="label-text">Selecione o arquivo da B3 (.xlsx)</span>
+          <span *ngIf="!fileB3()" class="label-text">Selecione o arquivo de negociações (.xlsx)</span>
           <span *ngIf="fileB3()" class="label-selected">{{ fileB3()?.name }}</span>
         </label>
       </div>
@@ -64,13 +121,13 @@
       </div>
     </div>
 
-    <!-- Card Binance -->
+    <!-- Card 3: Binance -->
     <div class="import-card">
       <div class="card-header">
         <div class="badge-source binance">BINANCE SPOT</div>
         <h2 class="card-title">Histórico de Ordens Binance</h2>
         <p class="card-desc">
-          Planilha Excel com a aba <strong>Order History</strong>. Processa BTCBRL e pares em dólar/USDT aplicando cotação oficial PTAX do BCB.
+          Planilha Excel com a aba <strong>Order History</strong>. Processa BTCBRL e pares em dólar aplicando PTAX oficial do BCB.
         </p>
       </div>
 

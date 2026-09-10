@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services.ingestion.parser_b3 import processar_planilha_b3
 from app.services.ingestion.parser_binance import processar_planilha_binance
+from app.services.ingestion.parser_movimentacao_b3 import processar_planilha_movimentacao_b3
 
 router = APIRouter()
 
@@ -21,18 +22,49 @@ async def upload_b3(
 
     try:
         content = await file.read()
-        transacoes = processar_planilha_b3(db=db, file_content=content)
+        transacoes, pendencias = processar_planilha_b3(db=db, file_content=content)
         return {
             "status": "success",
             "origem": "B3",
             "filename": file.filename,
             "transacoes_processadas": len(transacoes),
-            "mensagem": f"{len(transacoes)} transações da B3 importadas e consolidadas com sucesso."
+            "pendencias": pendencias,
+            "mensagem": f"{len(transacoes)} transações da B3 importadas com sucesso. {len(pendencias)} pendências detectadas."
         }
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Erro ao processar planilha da B3: {str(exc)}"
+        )
+
+@router.post("/b3-transferencias", summary="Upload e ingestão de transferências/movimentações de custódia da B3 (.xlsx)")
+async def upload_b3_transferencias(
+    file: UploadFile = File(..., description="Arquivo Excel (.xlsx) de movimentação/custódia da B3"),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Arquivo deve estar no formato Excel (.xlsx ou .xls)."
+        )
+
+    try:
+        content = await file.read()
+        resultado = processar_planilha_movimentacao_b3(db=db, file_content=content)
+        transacoes = resultado["transacoes"]
+        avisos = resultado["avisos"]
+        return {
+            "status": "success",
+            "origem": "B3-Transferencias",
+            "filename": file.filename,
+            "transferencias_processadas": len(transacoes),
+            "avisos": avisos,
+            "mensagem": f"{len(transacoes)} entradas/transferências de custódia consolidadas com sucesso."
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erro ao processar planilha de movimentações da B3: {str(exc)}"
         )
 
 @router.post("/binance", summary="Upload e ingestão de negociações da Binance (.xlsx)")

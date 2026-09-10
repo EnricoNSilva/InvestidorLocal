@@ -144,3 +144,106 @@ def test_importacao_binance(mock_ptax, client):
     btc_pos = next(p for p in res_pos.json() if p["ativo"]["ticker"] == "BTC")
     assert Decimal(str(btc_pos["quantidade_saldo"])) == Decimal("0.08")
     assert Decimal(str(btc_pos["preco_medio_brl"])) == Decimal("205205.00000000")
+def create_b3_movimentacao_excel_in_memory() -> bytes:
+    """Gera planilha Excel simulada de Movimentação de Custódia da B3."""
+    data = [
+        {
+            "Data": "2023-12-20",
+            "Movimentação": "Transferência - Liquidação",
+            "Produto": "VALE3 - VALE S.A.",
+            "Quantidade": 50,
+            "Preço unitário": 65.00,
+            "Valor da Operação": 3250.00
+        },
+        {
+            "Data": "2023-12-22",
+            "Movimentação": "Cessão / Doação de Ativos",
+            "Produto": "MXRF11",
+            "Quantidade": 100,
+            "Preço unitário": 0.0,  # Preço zerado para validar fallback
+            "Valor da Operação": 0.0
+        },
+        {
+            "Data": "2023-12-23",
+            "Movimentação": "Rendimento / JCP",  # Não deve ser importado como entrada de custódia
+            "Produto": "ITUB4",
+            "Quantidade": 0,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 150.00
+        }
+    ]
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Movimentação")
+    return output.getvalue()
+
+def test_importacao_b3_transferencias(client):
+    """Valida ingestão de transferências/entradas de custódia da B3."""
+    excel_bytes = create_b3_movimentacao_excel_in_memory()
+    files = {"file": ("movimentacoes_b3.xlsx", excel_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+
+    response = client.post("/api/v1/importacao/b3-transferencias", files=files)
+    assert response.status_code == 200, response.text
+    res_data = response.json()
+    assert res_data["status"] == "success"
+    assert res_data["transferencias_processadas"] == 2
+    assert len(res_data["avisos"]) == 1
+
+    # Verificar ativos criados e saldos
+    res_pos = client.get("/api/v1/posicoes")
+    assert res_pos.status_code == 200
+    posicoes_map = {p["ativo"]["ticker"]: p for p in res_pos.json()}
+
+    assert "VALE3" in posicoes_map
+    pos_vale = posicoes_map["VALE3"]
+    assert Decimal(str(pos_vale["quantidade_saldo"])) == Decimal("50")
+    assert Decimal(str(pos_vale["preco_medio_brl"])) == Decimal("65.00000000")
+
+    assert "MXRF11" in posicoes_map
+    pos_mxrf = posicoes_map["MXRF11"]
+    assert Decimal(str(pos_mxrf["quantidade_saldo"])) == Decimal("100")
+    # Fallback padrão de R$ 1.00
+    assert Decimal(str(pos_mxrf["preco_medio_brl"])) == Decimal("1.00000000")
+
+def test_importacao_b3_resiliente_pendencias(client):
+    """Valida que uma venda sem saldo registra pendência e não aborta as outras ordens válidas."""
+    data = [
+        {
+            "Data do Negócio": "2024-01-10",
+            "Tipo de Movimentação": "Compra",
+            "Código de Negociação": "BBDC4",
+            "Quantidade": 100,
+            "Preço": 15.00,
+            "Taxas": 2.00,
+        },
+        {
+            "Data do Negócio": "2024-01-12",
+            "Tipo de Movimentação": "Venda",
+            "Código de Negociação": "WEGE3",  # Sem saldo prévio
+            "Quantidade": 50,
+            "Preço": 40.00,
+            "Taxas": 1.00,
+        },
+        {
+            "Data do Negócio": "2024-01-15",
+            "Tipo de Movimentação": "Compra",
+            "Código de Negociação": "BBDC4",
+            "Quantidade": 50,
+            "Preço": 16.00,
+            "Taxas": 1.00,
+        }
+    ]
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Negociações")
+
+    files = {"file": ("negociacoes_parciais.xlsx", output.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    response = client.post("/api/v1/importacao/b3", files=files)
+    assert response.status_code == 200, response.text
+    res_data = response.json()
+
+    assert res_data["transacoes_processadas"] == 2
+    assert len(res_data["pendencias"]) == 1
+    assert "WEGE3" in res_data["pendencias"][0]

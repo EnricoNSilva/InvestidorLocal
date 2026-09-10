@@ -1,6 +1,6 @@
 ﻿export type TipoAtivo = 'Acao' | 'FII' | 'Cripto' | 'RendaFixa';
 
-export type TipoOperacao = 'BUY' | 'SELL';
+export type TipoOperacao = 'BUY' | 'SELL' | 'TRANSFERENCIA_ENTRADA';
 
 export interface Ativo {
   id: number;
@@ -40,6 +40,9 @@ export interface RetornoImportacao {
   status: string;
   origem: string;
   filename: string;
-  transacoes_processadas: number;
+  transacoes_processadas?: number;
+  transferencias_processadas?: number;
   mensagem: string;
+  pendencias?: string[];
+  avisos?: string[];
 }

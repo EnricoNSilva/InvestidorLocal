@@ -9,3 +9,4 @@ class TipoAtivo(str, enum.Enum):
 class TipoOperacao(str, enum.Enum):
     BUY = "BUY"
     SELL = "SELL"
+    TRANSFERENCIA_ENTRADA = "TRANSFERENCIA_ENTRADA"
