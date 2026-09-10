@@ -1,0 +1,39 @@
+﻿/* Paleta Dark Mode Inspirada no Investidor 10 */
+:root {
+  --bg-main: #0d1117;
+  --bg-card: #161b22;
+  --bg-card-hover: #1c2128;
+  --border-color: #30363d;
+  --text-main: #f0f6fc;
+  --text-muted: #8b949e;
+  --primary: #238636;
+  --primary-hover: #2ea043;
+  --primary-glow: rgba(35, 134, 54, 0.25);
+  --accent-blue: #388bfd;
+  --accent-purple: #8957e5;
+  --accent-gold: #d29922;
+  --accent-danger: #f85149;
+  --badge-acao: #1f6feb;
+  --badge-fii: #8957e5;
+  --badge-cripto: #d29922;
+  --badge-rf: #238636;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

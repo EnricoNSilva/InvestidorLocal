@@ -1,0 +1,134 @@
+﻿<div class="importacao-view">
+  <div class="view-header">
+    <div>
+      <h1 class="view-title">Importação de Relatórios e Extratos</h1>
+      <p class="view-subtitle">Alimente sua base local com arquivos .xlsx oficiais da B3 e Binance</p>
+    </div>
+  </div>
+
+  <div class="cards-grid">
+    <!-- Card B3 -->
+    <div class="import-card">
+      <div class="card-header">
+        <div class="badge-source b3">B3 - BRASIL BOLSA BALCÃO</div>
+        <h2 class="card-title">Negociações da B3</h2>
+        <p class="card-desc">
+          Planilha Excel exportada da <strong>Área do Investidor da B3</strong> contendo histórico de negociações de Ações, FIIs e ETFs.
+        </p>
+      </div>
+
+      <div class="upload-zone" [class.has-file]="fileB3()">
+        <input type="file" id="inputB3" (change)="onFileB3Selected($event)" accept=".xlsx, .xls" class="file-input" />
+        <label for="inputB3" class="file-label">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <span *ngIf="!fileB3()" class="label-text">Selecione o arquivo da B3 (.xlsx)</span>
+          <span *ngIf="fileB3()" class="label-selected">{{ fileB3()?.name }}</span>
+        </label>
+      </div>
+
+      <div class="card-actions">
+        <button class="btn-submit" (click)="enviarB3()" [disabled]="!fileB3() || loadingB3()">
+          <span *ngIf="loadingB3()" class="spinner-inline"></span>
+          <span>{{ loadingB3() ? 'Processando na B3...' : 'Processar Arquivo B3' }}</span>
+        </button>
+      </div>
+
+      <!-- Feedback de Sucesso -->
+      <div *ngIf="resultadoB3()" class="feedback-box success">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <div>
+          <strong>Sucesso!</strong>
+          <p>{{ resultadoB3()?.mensagem }}</p>
+        </div>
+      </div>
+
+      <!-- Feedback de Erro -->
+      <div *ngIf="erroB3()" class="feedback-box error">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <div>
+          <strong>Erro no processamento:</strong>
+          <p>{{ erroB3() }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card Binance -->
+    <div class="import-card">
+      <div class="card-header">
+        <div class="badge-source binance">BINANCE SPOT</div>
+        <h2 class="card-title">Histórico de Ordens Binance</h2>
+        <p class="card-desc">
+          Planilha Excel com a aba <strong>Order History</strong>. Processa BTCBRL e pares em dólar/USDT aplicando cotação oficial PTAX do BCB.
+        </p>
+      </div>
+
+      <div class="upload-zone" [class.has-file]="fileBinance()">
+        <input type="file" id="inputBinance" (change)="onFileBinanceSelected($event)" accept=".xlsx, .xls" class="file-input" />
+        <label for="inputBinance" class="file-label">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <span *ngIf="!fileBinance()" class="label-text">Selecione o arquivo da Binance (.xlsx)</span>
+          <span *ngIf="fileBinance()" class="label-selected">{{ fileBinance()?.name }}</span>
+        </label>
+      </div>
+
+      <div class="card-actions">
+        <button class="btn-submit btn-binance" (click)="enviarBinance()" [disabled]="!fileBinance() || loadingBinance()">
+          <span *ngIf="loadingBinance()" class="spinner-inline"></span>
+          <span>{{ loadingBinance() ? 'Processando Fila com PTAX...' : 'Processar Ordens Binance' }}</span>
+        </button>
+      </div>
+
+      <!-- Feedback de Sucesso -->
+      <div *ngIf="resultadoBinance()" class="feedback-box success">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <div>
+          <strong>Sucesso!</strong>
+          <p>{{ resultadoBinance()?.mensagem }}</p>
+        </div>
+      </div>
+
+      <!-- Feedback de Erro -->
+      <div *ngIf="erroBinance()" class="feedback-box error">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <div>
+          <strong>Erro no processamento:</strong>
+          <p>{{ erroBinance() }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-cta">
+    <a routerLink="/" class="btn-link">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+      <span>Voltar para a Carteira Consolidada</span>
+    </a>
+  </div>
+</div>

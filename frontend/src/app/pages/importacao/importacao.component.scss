@@ -1,0 +1,239 @@
+﻿.importacao-view {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.view-header {
+  .view-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-main);
+  }
+
+  .view-subtitle {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.5rem;
+}
+
+.import-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+
+  .card-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+
+    .badge-source {
+      align-self: flex-start;
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+
+      &.b3 {
+        background: rgba(31, 111, 235, 0.15);
+        color: #58a6ff;
+        border: 1px solid rgba(31, 111, 235, 0.3);
+      }
+
+      &.binance {
+        background: rgba(210, 153, 34, 0.15);
+        color: #e3b341;
+        border: 1px solid rgba(210, 153, 34, 0.3);
+      }
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .card-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+
+      strong {
+        color: #c9d1d9;
+      }
+    }
+  }
+}
+
+.upload-zone {
+  position: relative;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  padding: 1.75rem 1rem;
+  text-align: center;
+  transition: all 0.2s ease;
+  background-color: rgba(13, 17, 23, 0.5);
+
+  &:hover {
+    border-color: #58a6ff;
+    background-color: rgba(13, 17, 23, 0.8);
+  }
+
+  &.has-file {
+    border-color: var(--primary);
+    background-color: rgba(35, 134, 54, 0.05);
+  }
+
+  .file-input {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .file-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-muted);
+    pointer-events: none;
+
+    svg {
+      color: #8b949e;
+    }
+
+    .label-text {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .label-selected {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #3fb950;
+      word-break: break-all;
+    }
+  }
+}
+
+.card-actions {
+  .btn-submit {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background-color: var(--primary);
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover:not(:disabled) {
+      background-color: var(--primary-hover);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    &.btn-binance {
+      background-color: #9e6a03;
+
+      &:hover:not(:disabled) {
+        background-color: #bb800a;
+      }
+    }
+  }
+}
+
+.spinner-inline {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  100% { transform: rotate(360deg); }
+}
+
+.feedback-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  animation: fadeIn 0.3s ease;
+
+  p {
+    margin-top: 0.15rem;
+    line-height: 1.35;
+  }
+
+  &.success {
+    background-color: rgba(35, 134, 54, 0.15);
+    border: 1px solid rgba(35, 134, 54, 0.4);
+    color: #3fb950;
+  }
+
+  &.error {
+    background-color: rgba(248, 81, 73, 0.15);
+    border: 1px solid rgba(248, 81, 73, 0.4);
+    color: #ff7b72;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.footer-cta {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+
+  .btn-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--accent-blue);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+
+    &:hover {
+      background-color: var(--bg-card-hover);
+      text-decoration: underline;
+    }
+  }
+}

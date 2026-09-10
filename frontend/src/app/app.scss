@@ -1,0 +1,102 @@
+﻿.layout-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+
+  .header-content {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0.85rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  .brand-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--primary), #1a6328);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    box-shadow: 0 0 12px var(--primary-glow);
+  }
+
+  .brand-text {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+    }
+
+    .brand-badge {
+      font-size: 0.65rem;
+      font-weight: 800;
+      background: rgba(56, 139, 253, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56, 139, 253, 0.3);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+    }
+  }
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    padding: 0.5rem 0.85rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+
+    &:hover {
+      color: var(--text-main);
+      background-color: var(--bg-card-hover);
+    }
+
+    &.active {
+      color: #fff;
+      background-color: rgba(35, 134, 54, 0.15);
+      border: 1px solid rgba(35, 134, 54, 0.4);
+      color: #3fb950;
+    }
+  }
+}
+
+.main-content {
+  flex: 1;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}

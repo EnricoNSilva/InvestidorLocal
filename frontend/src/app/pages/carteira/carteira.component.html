@@ -1,0 +1,111 @@
+﻿<div class="carteira-view">
+  <div class="view-header">
+    <div>
+      <h1 class="view-title">Carteira Consolidada</h1>
+      <p class="view-subtitle">Posições ativas com cálculo de Custo Médio Ponderado Móvel (CMPM)</p>
+    </div>
+    <button class="btn-refresh" (click)="carregarPosicoes()" [disabled]="loading()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" [class.spinning]="loading()">
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+      </svg>
+      <span>Atualizar</span>
+    </button>
+  </div>
+
+  <!-- Cards Métricas Superiores -->
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-icon green">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"></line>
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+      </div>
+      <div class="metric-info">
+        <span class="metric-label">Patrimônio em Custo Total</span>
+        <span class="metric-value">{{ formatarMoeda(totalPatrimonioCusto()) }}</span>
+        <span class="metric-hint">Base contábil / fiscal de aquisição</span>
+      </div>
+    </div>
+
+    <div class="metric-card">
+      <div class="metric-icon blue">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+          <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+        </svg>
+      </div>
+      <div class="metric-info">
+        <span class="metric-label">Ativos em Custódia</span>
+        <span class="metric-value">{{ totalAtivos() }}</span>
+        <span class="metric-hint">Ações, FIIs e Criptoativos</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback de Erro -->
+  <div *ngIf="errorMessage()" class="alert-box error">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+    <span>{{ errorMessage() }}</span>
+  </div>
+
+  <!-- Tabela de Posições -->
+  <div class="table-container">
+    <div class="table-header">
+      <h2 class="table-title">Posições de Estoque</h2>
+      <span class="table-counter">{{ posicoes().length }} ativos com saldo</span>
+    </div>
+
+    <div *ngIf="loading()" class="loading-state">
+      <div class="spinner"></div>
+      <p>Carregando posições da carteira...</p>
+    </div>
+
+    <div *ngIf="!loading() && posicoes().length === 0 && !errorMessage()" class="empty-state">
+      <div class="empty-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+        </svg>
+      </div>
+      <h3>Sua carteira está vazia</h3>
+      <p>Importe suas planilhas de negociação da B3 ou Binance para visualizar suas posições consolidadas.</p>
+      <a routerLink="/importacao" class="btn-primary">Importar Planilhas Agora</a>
+    </div>
+
+    <div class="table-responsive" *ngIf="!loading() && posicoes().length > 0">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Ativo / Ticker</th>
+            <th>Nome</th>
+            <th>Classe</th>
+            <th class="text-right">Quantidade</th>
+            <th class="text-right">Custo Total (R$)</th>
+            <th class="text-right">Preço Médio (R$)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let pos of posicoes()">
+            <td class="ticker-cell">
+              <span class="ticker-symbol">{{ pos.ativo?.ticker || 'N/D' }}</span>
+            </td>
+            <td class="name-cell">{{ pos.ativo?.nome || '-' }}</td>
+            <td>
+              <span class="badge" [ngClass]="getBadgeClass(pos.ativo?.tipo)">
+                {{ pos.ativo?.tipo || 'Outro' }}
+              </span>
+            </td>
+            <td class="text-right font-mono">{{ formatarQuantidade(pos.quantidade_saldo, pos.ativo?.tipo) }}</td>
+            <td class="text-right font-mono highlight-val">{{ formatarMoeda(pos.custo_total_brl) }}</td>
+            <td class="text-right font-mono pm-val">{{ formatarMoeda(pos.preco_medio_brl) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

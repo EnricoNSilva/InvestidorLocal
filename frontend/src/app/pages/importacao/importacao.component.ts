@@ -1,0 +1,88 @@
+﻿import { Component, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { CarteiraService } from '../../core/services/carteira.service';
+import { RetornoImportacao } from '../../core/models/investimento.models';
+
+@Component({
+  selector: 'app-importacao',
+  standalone: true,
+  imports: [CommonModule, RouterLink],
+  templateUrl: './importacao.component.html',
+  styleUrl: './importacao.component.scss'
+})
+export class ImportacaoComponent {
+  private readonly carteiraService = inject(CarteiraService);
+
+  // Estado B3
+  readonly fileB3 = signal<File | null>(null);
+  readonly loadingB3 = signal<boolean>(false);
+  readonly resultadoB3 = signal<RetornoImportacao | null>(null);
+  readonly erroB3 = signal<string | null>(null);
+
+  // Estado Binance
+  readonly fileBinance = signal<File | null>(null);
+  readonly loadingBinance = signal<boolean>(false);
+  readonly resultadoBinance = signal<RetornoImportacao | null>(null);
+  readonly erroBinance = signal<string | null>(null);
+
+  onFileB3Selected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.fileB3.set(input.files[0]);
+      this.resultadoB3.set(null);
+      this.erroB3.set(null);
+    }
+  }
+
+  onFileBinanceSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.fileBinance.set(input.files[0]);
+      this.resultadoBinance.set(null);
+      this.erroBinance.set(null);
+    }
+  }
+
+  enviarB3(): void {
+    const file = this.fileB3();
+    if (!file) return;
+
+    this.loadingB3.set(true);
+    this.erroB3.set(null);
+
+    this.carteiraService.uploadB3(file).subscribe({
+      next: (res) => {
+        this.resultadoB3.set(res);
+        this.loadingB3.set(false);
+      },
+      error: (err) => {
+        console.error('Erro na importação B3:', err);
+        const detail = err.error?.detail || 'Erro ao processar planilha da B3.';
+        this.erroB3.set(detail);
+        this.loadingB3.set(false);
+      }
+    });
+  }
+
+  enviarBinance(): void {
+    const file = this.fileBinance();
+    if (!file) return;
+
+    this.loadingBinance.set(true);
+    this.erroBinance.set(null);
+
+    this.carteiraService.uploadBinance(file).subscribe({
+      next: (res) => {
+        this.resultadoBinance.set(res);
+        this.loadingBinance.set(false);
+      },
+      error: (err) => {
+        console.error('Erro na importação Binance:', err);
+        const detail = err.error?.detail || 'Erro ao processar planilha da Binance.';
+        this.erroBinance.set(detail);
+        this.loadingBinance.set(false);
+      }
+    });
+  }
+}

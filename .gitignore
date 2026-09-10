@@ -20,6 +20,11 @@ htmlcov/
 *.db-wal
 *.db-shm
 
+# Frontend / Node
+node_modules/
+dist/
+.angular/
+
 # Arquivos de ambiente e segredos
 .env
 .env.*
