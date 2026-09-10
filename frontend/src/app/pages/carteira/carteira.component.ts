@@ -36,7 +36,11 @@ export class CarteiraComponent implements OnInit {
   });
 
   readonly carteiraNome = computed(() => this.carteiraAtiva()?.nome || 'Carteira Consolidada');
-  readonly carteiraDescricao = computed(() => this.carteiraAtiva()?.descricao || 'Posições ativas com cálculo de Custo Médio Ponderado Móvel (CMPM)');
+  readonly carteiraDescricao = computed(
+    () =>
+      this.carteiraAtiva()?.descricao ||
+      'Posições ativas com cálculo de Custo Médio Ponderado Móvel (CMPM)',
+  );
 
   readonly totalPatrimonioCusto = computed(() => {
     return this.posicoes().reduce((acc, pos) => {

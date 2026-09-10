@@ -11,6 +11,14 @@ from app.api.v1.endpoints import health, ativos, transacoes, carteira, importaca
 async def lifespan(app: FastAPI):
     # Garante a criação de todas as tabelas no banco de dados SQLite
     Base.metadata.create_all(bind=engine)
+    
+    # Migração defensiva de índices em bancos SQLite já existentes
+    with engine.connect() as conn:
+        conn.exec_driver_sql("DROP INDEX IF EXISTS ix_posicoes_consolidadas_ativo_id")
+        conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS uq_posicao_carteira_ativo ON posicoes_consolidadas (carteira_id, ativo_id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_posicoes_consolidadas_ativo_id ON posicoes_consolidadas (ativo_id)")
+        conn.commit()
+
     # Garante a existência da carteira padrão inicial
     db = SessionLocal()
     try:
