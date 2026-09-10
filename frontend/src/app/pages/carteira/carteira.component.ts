@@ -196,6 +196,15 @@ export class CarteiraComponent implements OnInit {
     });
   }
 
+  formatarPrecoMedio(pos: PosicaoConsolidada): string {
+    const custo = typeof pos.custo_total_brl === 'string' ? parseFloat(pos.custo_total_brl) : pos.custo_total_brl;
+    const pm = typeof pos.preco_medio_brl === 'string' ? parseFloat(pos.preco_medio_brl) : pos.preco_medio_brl;
+    if (isNaN(custo) || custo <= 0 || isNaN(pm) || pm <= 0) {
+      return 'R$ 0,00 (A definir)';
+    }
+    return this.formatarMoeda(pm);
+  }
+
   formatarQuantidade(valor: string | number, tipo?: string): string {
     const num = typeof valor === 'string' ? parseFloat(valor) : valor;
     if (isNaN(num)) return '0';

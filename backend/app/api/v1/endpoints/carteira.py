@@ -7,7 +7,7 @@ from app.models.carteira import Carteira
 from app.models.posicao import PosicaoConsolidada
 from app.schemas.carteira import CarteiraCreate, CarteiraRead, CarteiraUpdate
 from app.schemas.posicao import PosicaoConsolidadaRead
-from app.services.portfolio import obter_ou_criar_carteira_padrao
+from app.services.portfolio import obter_ou_criar_carteira_padrao, recalcular_posicoes_carteira
 
 router = APIRouter()
 
@@ -86,6 +86,20 @@ def limpar_carteira(
     carteira.posicoes.clear()
     db.commit()
     return {"status": "success", "mensagem": f"Histórico e posições da carteira '{carteira.nome}' foram zerados com sucesso."}
+
+@router.post("/carteiras/{carteira_id}/recalcular", status_code=status.HTTP_200_OK, summary="Recalcular posições consolidadas da carteira")
+def recalcular_carteira(
+    carteira_id: int,
+    db: Session = Depends(get_db)
+):
+    carteira = db.query(Carteira).filter(Carteira.id == carteira_id).first()
+    if not carteira:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Carteira com ID {carteira_id} não encontrada."
+        )
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira_id)
+    return {"status": "success", "mensagem": f"Posições da carteira '{carteira.nome}' recalculadas com sucesso."}
 
 # --- Endpoint de Posições Consolidadas ---
 

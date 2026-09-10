@@ -11,7 +11,7 @@ from app.models.ativo import Ativo
 from app.models.enums import TipoAtivo, TipoOperacao
 from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
-from app.services.portfolio import processar_transacao
+from app.services.portfolio import processar_transacao, recalcular_posicoes_carteira
 
 getcontext().prec = 28
 
@@ -246,6 +246,7 @@ def processar_planilha_binance(
                 f"Ordem {tipo_operacao.value} de {trade_qty} {base_ticker} em {dt_obj.strftime('%d/%m/%Y %H:%M')}: {str(p_err)}"
             )
 
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira_id or 1)
     return {
         "transacoes": transacoes_criadas,
         "pendencias": pendencias,

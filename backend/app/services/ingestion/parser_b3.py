@@ -11,7 +11,7 @@ from app.models.ativo import Ativo
 from app.models.enums import TipoAtivo, TipoOperacao
 from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
-from app.services.portfolio import processar_transacao, PortfolioError
+from app.services.portfolio import processar_transacao, PortfolioError, recalcular_posicoes_carteira
 
 def inferir_tipo_ativo(ticker: str) -> TipoAtivo:
     clean_ticker = ticker.strip().upper()
@@ -181,4 +181,5 @@ def processar_planilha_b3(
                 f"Operação {tipo_operacao.value} de {quantidade} {ticker} em {data_hora.strftime('%d/%m/%Y')}: {str(p_err)}"
             )
 
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira_id or 1)
     return transacoes_criadas, pendencias

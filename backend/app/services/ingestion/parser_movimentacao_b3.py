@@ -11,56 +11,29 @@ from app.models.ativo import Ativo
 from app.models.enums import TipoAtivo, TipoOperacao
 from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
-from app.services.portfolio import processar_transacao
+from app.services.portfolio import processar_transacao, recalcular_posicoes_carteira
 from app.services.ingestion.parser_b3 import inferir_tipo_ativo, to_decimal
 
 def normalize_col(col: str) -> str:
     """Remove acentuações e padroniza string para comparação robusta."""
     return "".join(c for c in unicodedata.normalize("NFKD", str(col)) if not unicodedata.combining(c)).lower().strip()
 
-# Termos que identificam eventos genuínos de custódia inicial / externa / bonificação
-TERMOS_CUSTODIA = [
-    "transferencia",
-    "doacao",
-    "cessao",
-    "bonificacao",
-    "deposito",
-    "custodia"
-]
-
-def eh_transferencia_custodia_valida(tipo_mov: str) -> bool:
-    """
-    Verifica se a movimentação corresponde a uma entrada ou transferência de custódia real.
-    CRÍTICO: Exclui expressamente 'Liquidação' / 'Transferência - Liquidação',
-    pois estas são liquidações de compras regulares do pregão que já constam na planilha de Negociação!
-    Também exclui proventos financeiros em dinheiro (dividendos, JCP, rendimentos) e direitos não exercidos.
-    """
-    norm = normalize_col(tipo_mov)
-    
-    # 1. Rejeita liquidação de pregão (para não duplicar com negociacao.xlsx)
-    if "liquida" in norm:
-        return False
-
-    # 2. Rejeita proventos em dinheiro
-    if any(p in norm for p in ["dividendo", "juros sobre", "rendimento", "amortizacao", "direito"]):
-        return False
-
-    # 3. Aceita apenas eventos genuínos de custódia
-    return any(termo in norm for termo in TERMOS_CUSTODIA)
-
 def processar_planilha_movimentacao_b3(
     db: Session,
     file_content: Union[BinaryIO, bytes],
     carteira_id: Optional[int] = 1,
-    preco_fallback_padrao: Decimal = Decimal("1.0")
 ) -> Dict[str, Union[List[Transacao], List[str]]]:
     """
-    Lê o arquivo de 'Movimentação' da B3 via Pandas.
-    Filtra linhas cujo tipo contenha termos como 'Transferência', 'Doação', 'Cessão' ou 'Bonificação em Ativos'.
-    Ignora liquidações de pregão ('Transferência - Liquidação') para evitar duplicidade com o extrato de Negociação.
-    Extrai: Data, Ticker (normalizando fracionários terminados em 'F'), Quantidade e Preço/Valor.
-    Caso o preço unitário venha zerado na planilha da B3, define um fallback de R$ 1.0 ou utiliza o preço presente.
-    Cria o ativo caso não exista e registra como TRANSFERENCIA_ENTRADA via processar_transacao.
+    Lê a planilha de 'Movimentação' da B3 via Pandas.
+    Filtra rigorosamente para considerar APENAS:
+      1. 'Transferência' / 'Cessão' / 'Doação': saldo herdado inicial (custo zero se não informado).
+      2. 'Bonificação em Ativos': incrementa quantidade com custo zero.
+      3. 'Direito de Subscrição': incrementa quantidade com custo zero.
+      4. 'Direitos de Subscrição - Não Exercido': subtrai quantidade com custo zero.
+    IGNORA expressamente:
+      - 'Transferência - Liquidação' (liquidações de pregão que vêm da planilha de Negociação).
+      - Proventos financeiros em dinheiro (dividendos, JCP, rendimentos).
+    Ao final, executa recalcular_posicoes_carteira() para consolidação integral e precisa.
     """
     if isinstance(file_content, bytes):
         file_content = io.BytesIO(file_content)
@@ -92,7 +65,7 @@ def processar_planilha_movimentacao_b3(
             f"Formato da planilha de Movimentação B3 inválido. Colunas obrigatórias 'Código/Produto' e 'Quantidade' não localizadas: {list(df.columns)}"
         )
 
-    # Trata data
+    # Trata data de forma flexível (suporta ISO e DD/MM/YYYY)
     if "data" in col_map:
         def _parse_dt(v):
             if pd.isna(v):
@@ -108,26 +81,61 @@ def processar_planilha_movimentacao_b3(
     else:
         df["_data_dt"] = datetime.now(timezone.utc)
 
+    # Ordena do passado para o presente
     df = df.sort_values("_data_dt").reset_index(drop=True)
 
     transacoes_criadas: List[Transacao] = []
     avisos: List[str] = []
 
     for _, row in df.iterrows():
-        # Filtro de sentido: ignora Débito/Saída
-        if "entrada_saida" in col_map:
-            sentido_str = normalize_col(row[col_map["entrada_saida"]])
-            if "debito" in sentido_str or "saida" in sentido_str:
-                continue
+        mov_str = str(row.get(col_map.get("movimentacao", ""), ""))
+        norm_mov = normalize_col(mov_str)
 
-        # Filtro estrito de transferência de custódia real
-        if "movimentacao" in col_map:
-            mov_str = str(row[col_map["movimentacao"]])
-            if not eh_transferencia_custodia_valida(mov_str):
+        # 1. Ignora categoricamente liquidações de pregão para não duplicar com o extrato de Negociação
+        if "liquida" in norm_mov:
+            continue
+
+        # 2. Ignora proventos financeiros em dinheiro
+        if any(p in norm_mov for p in ["dividendo", "juros sobre", "rendimento", "amortizacao"]):
+            continue
+
+        # 3. Classifica o tipo de evento
+        sentido_str = normalize_col(row.get(col_map.get("entrada_saida", ""), ""))
+        eh_debito = "debito" in sentido_str or "saida" in sentido_str
+
+        if "nao exercido" in norm_mov:
+            tipo_operacao = TipoOperacao.DIREITO_SUBSCRICAO_EXPIRADO
+            preco_unitario = Decimal("0.0")
+        elif "bonifica" in norm_mov:
+            if eh_debito:
                 continue
+            tipo_operacao = TipoOperacao.BONIFICACAO
+            preco_unitario = Decimal("0.0")
+        elif "direito" in norm_mov or "subscri" in norm_mov:
+            if eh_debito:
+                continue
+            tipo_operacao = TipoOperacao.DIREITO_SUBSCRICAO
+            preco_unitario = Decimal("0.0")
+        elif any(t in norm_mov for t in ["transferencia", "cessao", "doacao", "deposito", "custodia"]):
+            if eh_debito:
+                continue
+            tipo_operacao = TipoOperacao.TRANSFERENCIA_ENTRADA
+            # Tenta ler preço caso explicitado, senão custo zero (sem fallback de R$ 1.0)
+            preco_unitario = Decimal("0.0")
+            if "preco" in col_map and pd.notna(row[col_map["preco"]]):
+                p_dec = to_decimal(row[col_map["preco"]])
+                if p_dec > Decimal("0.0"):
+                    preco_unitario = p_dec
+            if preco_unitario <= Decimal("0.0") and "valor_total" in col_map and pd.notna(row[col_map["valor_total"]]):
+                v_dec = to_decimal(row[col_map["valor_total"]])
+                q_dec = to_decimal(row[col_map["quantidade"]])
+                if v_dec > Decimal("0.0") and q_dec > Decimal("0.0"):
+                    preco_unitario = v_dec / q_dec
+        else:
+            # Qualquer outro evento não afeta custódia de ativos
+            continue
 
         ticker_raw = str(row[col_map["ticker"]]).strip().upper()
-        # Se contiver descrição longa (ex: 'PETR4 - PETROLEO BRASILEIRO'), extrai o ticker inicial
         ticker_part = ticker_raw.split()[0].replace("-", "").strip() if " " in ticker_raw else ticker_raw
         if len(ticker_part) == 6 and ticker_part.endswith("F") and ticker_part[:5].isalnum():
             ticker = ticker_part[:-1]
@@ -141,23 +149,7 @@ def processar_planilha_movimentacao_b3(
         if quantidade <= Decimal("0"):
             continue
 
-        # Extração e fallback de preço unitário
-        preco_unitario = Decimal("0")
-        if "preco" in col_map and pd.notna(row[col_map["preco"]]):
-            preco_unitario = to_decimal(row[col_map["preco"]])
-
-        # Se veio zerado, tenta obter pelo valor_total / quantidade
-        if preco_unitario <= Decimal("0") and "valor_total" in col_map and pd.notna(row[col_map["valor_total"]]):
-            val_total = to_decimal(row[col_map["valor_total"]])
-            if val_total > Decimal("0"):
-                preco_unitario = val_total / quantidade
-
-        # Fallback padrão caso permaneça zero (ex: transferência entre custódias sem custo especificado)
-        if preco_unitario <= Decimal("0"):
-            preco_unitario = preco_fallback_padrao
-            avisos.append(f"Ativo {ticker}: Preço unitário zerado na movimentação. Adotado fallback de R$ {preco_fallback_padrao}.")
-
-        # 1. Garante a existência do ativo
+        # Garante a existência do ativo
         ativo = db.query(Ativo).filter(Ativo.ticker == ticker).first()
         if not ativo:
             tipo_ativo = inferir_tipo_ativo(ticker)
@@ -180,7 +172,7 @@ def processar_planilha_movimentacao_b3(
             carteira_id=carteira_id or 1,
             ativo_id=ativo.id,
             data_hora=data_hora,
-            tipo_operacao=TipoOperacao.TRANSFERENCIA_ENTRADA,
+            tipo_operacao=tipo_operacao,
             quantidade=quantidade,
             preco_unitario=preco_unitario,
             taxas=Decimal("0.0"),
@@ -191,6 +183,9 @@ def processar_planilha_movimentacao_b3(
 
         tx = processar_transacao(db=db, transacao_in=transacao_in)
         transacoes_criadas.append(tx)
+
+    # Reavalia e consolida todas as posições da carteira de forma idempotente
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira_id or 1)
 
     return {
         "transacoes": transacoes_criadas,

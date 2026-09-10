@@ -17,7 +17,18 @@ export class CarteiraService {
 
   // Gerenciamento reativo de carteiras
   readonly carteiras = signal<Carteira[]>([]);
-  readonly carteiraAtivaId = signal<number>(1);
+  readonly carteiraAtivaId = signal<number>(this.getInitialCarteiraId());
+
+  private getInitialCarteiraId(): number {
+    try {
+      const saved = localStorage.getItem('carteiraAtivaId');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val)) return val;
+      }
+    } catch (_) {}
+    return 1;
+  }
 
   constructor() {
     this.carregarCarteiras();
@@ -30,7 +41,7 @@ export class CarteiraService {
         if (list.length > 0) {
           const existe = list.some((c) => c.id === this.carteiraAtivaId());
           if (!existe) {
-            this.carteiraAtivaId.set(list[0].id);
+            this.selecionarCarteira(list[0].id);
           }
         }
       },
@@ -40,6 +51,9 @@ export class CarteiraService {
 
   selecionarCarteira(id: number): void {
     this.carteiraAtivaId.set(id);
+    try {
+      localStorage.setItem('carteiraAtivaId', id.toString());
+    } catch (_) {}
   }
 
   getCarteiras(): Observable<Carteira[]> {

@@ -188,7 +188,7 @@ def test_importacao_b3_transferencias(client):
     res_data = response.json()
     assert res_data["status"] == "success"
     assert res_data["transferencias_processadas"] == 2
-    assert len(res_data["avisos"]) == 1
+    assert len(res_data["avisos"]) == 0
 
     # Verificar ativos criados e saldos
     res_pos = client.get("/api/v1/posicoes")
@@ -203,8 +203,8 @@ def test_importacao_b3_transferencias(client):
     assert "MXRF11" in posicoes_map
     pos_mxrf = posicoes_map["MXRF11"]
     assert Decimal(str(pos_mxrf["quantidade_saldo"])) == Decimal("100")
-    # Fallback padrão de R$ 1.00
-    assert Decimal(str(pos_mxrf["preco_medio_brl"])) == Decimal("1.00000000")
+    # Custo zero pois veio sem preço
+    assert Decimal(str(pos_mxrf["preco_medio_brl"])) == Decimal("0.00000000")
 
 def test_importacao_b3_resiliente_pendencias(client):
     """Valida que uma venda sem saldo registra pendência e não aborta as outras ordens válidas."""
@@ -317,3 +317,84 @@ def test_transferencia_seguida_de_venda_total_zera_posicao(client):
     assert Decimal(str(mglu_pos["quantidade_saldo"])) == Decimal("0")
     assert Decimal(str(mglu_pos["preco_medio_brl"])) == Decimal("0")
     assert Decimal(str(mglu_pos["custo_total_brl"])) == Decimal("0")
+
+def test_consolidacao_casos_reais_usuario(client):
+    """
+    Testa exatamente os casos solicitados pelo usuário:
+    - IRBR3: 500 (transf) + 500 + 700 + 700 (neg) = 2400
+    - VBBR3: 50 (neg, normalizado de VBBR3F)
+    - BBDC3: 100 (neg)
+    - MGLU3: 200 compra - 200 venda = 0 (não aparece)
+    - AESB1: 70 direito - 70 expirado + 2 direito = 2
+    - ITSA4: 1520 (transf) + 152 (bonificação) = 1672
+    """
+    # 1. Movimentação
+    mov_data = [
+        {"Data": "23/03/2022", "Movimentação": "Transferência", "Produto": "IRBR3 - IRB BRASIL", "Quantidade": 500, "Preço unitário": "-", "Valor da Operação": "-"},
+        {"Data": "23/03/2022", "Movimentação": "Transferência", "Produto": "ITSA4 - ITAUSA", "Quantidade": 1520, "Preço unitário": "-", "Valor da Operação": "-"},
+        {"Data": "15/08/2022", "Movimentação": "Direito de Subscrição", "Produto": "AESB1", "Quantidade": 70, "Preço unitário": "-", "Valor da Operação": "-"},
+        {"Data": "12/09/2022", "Movimentação": "Direitos de Subscrição - Não Exercido", "Produto": "AESB1", "Quantidade": 70, "Preço unitário": "-", "Valor da Operação": "-"},
+        {"Data": "12/12/2022", "Movimentação": "Direito de Subscrição", "Produto": "AESB1", "Quantidade": 2, "Preço unitário": "-", "Valor da Operação": "-"},
+        {"Data": "14/11/2022", "Movimentação": "Bonificação em Ativos", "Produto": "ITSA4", "Quantidade": 152, "Preço unitário": "-", "Valor da Operação": "-"},
+        # Linha que deve ser ignorada:
+        {"Data": "14/11/2022", "Movimentação": "Transferência - Liquidação", "Produto": "VBBR3", "Quantidade": 50, "Preço unitário": 17.29, "Valor da Operação": 864.50},
+    ]
+    df_mov = pd.DataFrame(mov_data)
+    out_mov = io.BytesIO()
+    with pd.ExcelWriter(out_mov, engine="openpyxl") as writer:
+        df_mov.to_excel(writer, index=False, sheet_name="Movimentação")
+
+    res_mov = client.post("/api/v1/importacao/b3-transferencias", files={"file": ("mov.xlsx", out_mov.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert res_mov.status_code == 200
+
+    # 2. Negociação
+    neg_data = [
+        {"Data do Negócio": "02/05/2022", "Tipo de Movimentação": "Compra", "Código de Negociação": "IRBR3", "Quantidade": 500, "Preço": 2.71, "Valor": 1355.0},
+        {"Data do Negócio": "17/05/2022", "Tipo de Movimentação": "Compra", "Código de Negociação": "MGLU3", "Quantidade": 200, "Preço": 3.95, "Valor": 790.0},
+        {"Data do Negócio": "05/07/2022", "Tipo de Movimentação": "Compra", "Código de Negociação": "BBDC3", "Quantidade": 100, "Preço": 14.13, "Valor": 1413.0},
+        {"Data do Negócio": "15/08/2022", "Tipo de Movimentação": "Venda", "Código de Negociação": "MGLU3", "Quantidade": 200, "Preço": 3.91, "Valor": 782.0},
+        {"Data do Negócio": "29/08/2022", "Tipo de Movimentação": "Compra", "Código de Negociação": "IRBR3", "Quantidade": 700, "Preço": 1.90, "Valor": 1330.0},
+        {"Data do Negócio": "01/09/2022", "Tipo de Movimentação": "Compra", "Código de Negociação": "IRBR3", "Quantidade": 700, "Preço": 1.42, "Valor": 994.0},
+        {"Data do Negócio": "10/11/2022", "Tipo de Movimentação": "Compra", "Código de Negociação": "VBBR3F", "Quantidade": 50, "Preço": 17.29, "Valor": 864.5},
+    ]
+    df_neg = pd.DataFrame(neg_data)
+    out_neg = io.BytesIO()
+    with pd.ExcelWriter(out_neg, engine="openpyxl") as writer:
+        df_neg.to_excel(writer, index=False, sheet_name="Negociações")
+
+    res_neg = client.post("/api/v1/importacao/b3", files={"file": ("neg.xlsx", out_neg.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert res_neg.status_code == 200
+
+    # 3. Validar posições ativas consolidadas
+    res_pos = client.get("/api/v1/posicoes?somente_com_saldo=true")
+    assert res_pos.status_code == 200
+    pos_map = {p["ativo"]["ticker"]: p for p in res_pos.json()}
+
+    # IRBR3: 500 + 500 + 700 + 700 = 2400
+    assert "IRBR3" in pos_map
+    assert Decimal(str(pos_map["IRBR3"]["quantidade_saldo"])) == Decimal("2400")
+    assert Decimal(str(pos_map["IRBR3"]["custo_total_brl"])) == Decimal("3679.0000")
+    assert Decimal(str(pos_map["IRBR3"]["preco_medio_brl"])) == Decimal("1.53291667")
+
+    # VBBR3: normalizado de VBBR3F, 50 unidades
+    assert "VBBR3" in pos_map
+    assert Decimal(str(pos_map["VBBR3"]["quantidade_saldo"])) == Decimal("50")
+    assert Decimal(str(pos_map["VBBR3"]["custo_total_brl"])) == Decimal("864.5000")
+
+    # BBDC3: 100 unidades
+    assert "BBDC3" in pos_map
+    assert Decimal(str(pos_map["BBDC3"]["quantidade_saldo"])) == Decimal("100")
+    assert Decimal(str(pos_map["BBDC3"]["custo_total_brl"])) == Decimal("1413.0000")
+
+    # MGLU3: 200 - 200 = 0 -> NÃO DEVE APARECER
+    assert "MGLU3" not in pos_map
+
+    # AESB1: 70 - 70 + 2 = 2 unidades
+    assert "AESB1" in pos_map
+    assert Decimal(str(pos_map["AESB1"]["quantidade_saldo"])) == Decimal("2")
+    assert Decimal(str(pos_map["AESB1"]["custo_total_brl"])) == Decimal("0.0000")
+
+    # ITSA4: 1520 + 152 bonificação = 1672 unidades
+    assert "ITSA4" in pos_map
+    assert Decimal(str(pos_map["ITSA4"]["quantidade_saldo"])) == Decimal("1672")
+    assert Decimal(str(pos_map["ITSA4"]["custo_total_brl"])) == Decimal("0.0000")

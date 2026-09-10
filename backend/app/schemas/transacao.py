@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,7 +10,7 @@ class TransacaoBase(BaseModel):
     data_hora: datetime = Field(default_factory=datetime.utcnow, description="Data e hora da execução da operação")
     tipo_operacao: TipoOperacao = Field(..., description="Tipo de operação: BUY, SELL, TRANSFERENCIA_ENTRADA")
     quantidade: Decimal = Field(..., gt=0, description="Quantidade negociada (positiva)")
-    preco_unitario: Decimal = Field(..., gt=0, description="Preço unitário negociado")
+    preco_unitario: Decimal = Field(..., ge=0, description="Preço unitário negociado")
     taxas: Decimal = Field(default=Decimal("0.0"), ge=0, description="Custos operacionais e taxas da transação")
     moeda: str = Field(default="BRL", max_length=10, description="Moeda da negociação")
     moeda_taxa: Optional[str] = Field(default="BRL", max_length=10, description="Moeda das taxas")
