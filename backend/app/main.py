@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1.endpoints import health
+from app.api.v1.endpoints import health, ativos, transacoes, carteira
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -20,8 +20,11 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Rotas
+# 2. Conexão dos roteadores da API v1
 app.include_router(health.router, prefix=settings.API_V1_STR, tags=["Health"])
+app.include_router(ativos.router, prefix=f"{settings.API_V1_STR}/ativos", tags=["Ativos"])
+app.include_router(transacoes.router, prefix=f"{settings.API_V1_STR}/transacoes", tags=["Transações"])
+app.include_router(carteira.router, prefix=f"{settings.API_V1_STR}/posicoes", tags=["Carteira / Posições"])
 
 @app.get("/", summary="Root status")
 def root():
