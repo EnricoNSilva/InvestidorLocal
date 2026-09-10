@@ -2,7 +2,7 @@ import io
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import BinaryIO, Dict, List, Union
+from typing import BinaryIO, Dict, List, Optional, Union
 import pandas as pd
 from sqlalchemy.orm import Session
 

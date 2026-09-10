@@ -1,4 +1,4 @@
-﻿from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Query
 from sqlalchemy.orm import Session
 
@@ -66,6 +66,8 @@ async def upload_b3_transferencias(
             "mensagem": f"{len(transacoes)} entradas/transferências de custódia consolidadas com sucesso."
         }
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Erro ao processar planilha de movimentações da B3: {str(exc)}"

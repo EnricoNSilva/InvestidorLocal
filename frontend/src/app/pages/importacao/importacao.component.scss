@@ -67,7 +67,8 @@
       outline: none;
       transition: all 0.2s;
 
-      &:focus, &:hover {
+      &:focus,
+      &:hover {
         border-color: var(--primary);
         box-shadow: 0 0 0 2px rgba(35, 134, 54, 0.25);
       }
@@ -263,7 +264,9 @@
 }
 
 @keyframes spin {
-  100% { transform: rotate(360deg); }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .feedback-box {
@@ -294,8 +297,14 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .footer-cta {

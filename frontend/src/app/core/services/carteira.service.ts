@@ -1,10 +1,15 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
-import { Ativo, Carteira, PosicaoConsolidada, RetornoImportacao } from '../models/investimento.models';
+import {
+  Ativo,
+  Carteira,
+  PosicaoConsolidada,
+  RetornoImportacao,
+} from '../models/investimento.models';
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class CarteiraService {
   private readonly http = inject(HttpClient);
@@ -23,13 +28,13 @@ export class CarteiraService {
       next: (list) => {
         this.carteiras.set(list);
         if (list.length > 0) {
-          const existe = list.some(c => c.id === this.carteiraAtivaId());
+          const existe = list.some((c) => c.id === this.carteiraAtivaId());
           if (!existe) {
             this.carteiraAtivaId.set(list[0].id);
           }
         }
       },
-      error: (err) => console.error('Erro ao carregar lista de carteiras:', err)
+      error: (err) => console.error('Erro ao carregar lista de carteiras:', err),
     });
   }
 
@@ -38,9 +43,9 @@ export class CarteiraService {
   }
 
   getCarteiras(): Observable<Carteira[]> {
-    return this.http.get<Carteira[]>(`${this.baseUrl}/posicoes/carteiras`).pipe(
-      tap((list) => this.carteiras.set(list))
-    );
+    return this.http
+      .get<Carteira[]>(`${this.baseUrl}/posicoes/carteiras`)
+      .pipe(tap((list) => this.carteiras.set(list)));
   }
 
   criarCarteira(payload: { nome: string; descricao?: string }): Observable<Carteira> {
@@ -48,23 +53,31 @@ export class CarteiraService {
       tap((nova) => {
         this.carteiras.update((anteriores) => [...anteriores, nova]);
         this.carteiraAtivaId.set(nova.id);
-      })
+      }),
     );
   }
 
   excluirCarteira(carteiraId: number): Observable<{ status: string; mensagem: string }> {
-    return this.http.delete<{ status: string; mensagem: string }>(`${this.baseUrl}/posicoes/carteiras/${carteiraId}`).pipe(
-      tap(() => {
-        this.carteiras.update((anteriores) => anteriores.filter((c) => c.id !== carteiraId));
-        const restantes = this.carteiras();
-        if (restantes.length > 0 && this.carteiraAtivaId() === carteiraId) {
-          this.carteiraAtivaId.set(restantes[0].id);
-        }
-      })
-    );
+    return this.http
+      .delete<{
+        status: string;
+        mensagem: string;
+      }>(`${this.baseUrl}/posicoes/carteiras/${carteiraId}`)
+      .pipe(
+        tap(() => {
+          this.carteiras.update((anteriores) => anteriores.filter((c) => c.id !== carteiraId));
+          const restantes = this.carteiras();
+          if (restantes.length > 0 && this.carteiraAtivaId() === carteiraId) {
+            this.carteiraAtivaId.set(restantes[0].id);
+          }
+        }),
+      );
   }
 
-  getPosicoes(carteiraId?: number, somenteComSaldo: boolean = true): Observable<PosicaoConsolidada[]> {
+  getPosicoes(
+    carteiraId?: number,
+    somenteComSaldo: boolean = true,
+  ): Observable<PosicaoConsolidada[]> {
     const id = carteiraId !== undefined ? carteiraId : this.carteiraAtivaId();
     let params = new HttpParams().set('somente_com_saldo', somenteComSaldo.toString());
     if (id) {
@@ -96,7 +109,11 @@ export class CarteiraService {
     if (id) {
       params = params.set('carteira_id', id.toString());
     }
-    return this.http.post<RetornoImportacao>(`${this.baseUrl}/importacao/b3-transferencias`, formData, { params });
+    return this.http.post<RetornoImportacao>(
+      `${this.baseUrl}/importacao/b3-transferencias`,
+      formData,
+      { params },
+    );
   }
 
   uploadBinance(file: File, carteiraId?: number): Observable<RetornoImportacao> {
@@ -107,6 +124,8 @@ export class CarteiraService {
     if (id) {
       params = params.set('carteira_id', id.toString());
     }
-    return this.http.post<RetornoImportacao>(`${this.baseUrl}/importacao/binance`, formData, { params });
+    return this.http.post<RetornoImportacao>(`${this.baseUrl}/importacao/binance`, formData, {
+      params,
+    });
   }
 }

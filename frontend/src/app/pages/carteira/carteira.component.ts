@@ -10,7 +10,7 @@ import { PosicaoConsolidada, Carteira } from '../../core/models/investimento.mod
   standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './carteira.component.html',
-  styleUrl: './carteira.component.scss'
+  styleUrl: './carteira.component.scss',
 })
 export class CarteiraComponent implements OnInit {
   readonly carteiraService = inject(CarteiraService);
@@ -29,17 +29,21 @@ export class CarteiraComponent implements OnInit {
   // Controle de Exclusão de Carteira
   readonly excluindoCarteira = signal<boolean>(false);
 
-  readonly carteiraAtiva = computed(() => {
+  readonly carteiraAtiva = computed<Carteira | null>(() => {
     const ativas = this.carteiraService.carteiras();
     const id = this.carteiraService.carteiraAtivaId();
-    return ativas.find(c => c.id === id) || ativas[0] || null;
+    return ativas.find((c) => c.id === id) ?? ativas[0] ?? null;
   });
+
+  readonly carteiraNome = computed(() => this.carteiraAtiva()?.nome || 'Carteira Consolidada');
+  readonly carteiraDescricao = computed(() => this.carteiraAtiva()?.descricao || 'Posições ativas com cálculo de Custo Médio Ponderado Móvel (CMPM)');
 
   readonly totalPatrimonioCusto = computed(() => {
     return this.posicoes().reduce((acc, pos) => {
-      const custo = typeof pos.custo_total_brl === 'string'
-        ? parseFloat(pos.custo_total_brl)
-        : pos.custo_total_brl;
+      const custo =
+        typeof pos.custo_total_brl === 'string'
+          ? parseFloat(pos.custo_total_brl)
+          : pos.custo_total_brl;
       return acc + (isNaN(custo) ? 0 : custo);
     }, 0);
   });
@@ -79,9 +83,11 @@ export class CarteiraComponent implements OnInit {
       },
       error: (err) => {
         console.error('Erro ao carregar posições:', err);
-        this.errorMessage.set('Não foi possível carregar a carteira. Verifique se o backend está ativo.');
+        this.errorMessage.set(
+          'Não foi possível carregar a carteira. Verifique se o backend está ativo.',
+        );
         this.loading.set(false);
-      }
+      },
     });
   }
 
@@ -106,20 +112,22 @@ export class CarteiraComponent implements OnInit {
     this.salvandoCarteira.set(true);
     this.erroModalCarteira.set(null);
 
-    this.carteiraService.criarCarteira({
-      nome: this.novoNomeCarteira.trim(),
-      descricao: this.novaDescricaoCarteira.trim() || undefined
-    }).subscribe({
-      next: () => {
-        this.salvandoCarteira.set(false);
-        this.fecharModalNovaCarteira();
-      },
-      error: (err) => {
-        this.salvandoCarteira.set(false);
-        const msg = err.error?.detail || 'Erro ao criar nova carteira.';
-        this.erroModalCarteira.set(msg);
-      }
-    });
+    this.carteiraService
+      .criarCarteira({
+        nome: this.novoNomeCarteira.trim(),
+        descricao: this.novaDescricaoCarteira.trim() || undefined,
+      })
+      .subscribe({
+        next: () => {
+          this.salvandoCarteira.set(false);
+          this.fecharModalNovaCarteira();
+        },
+        error: (err) => {
+          this.salvandoCarteira.set(false);
+          const msg = err.error?.detail || 'Erro ao criar nova carteira.';
+          this.erroModalCarteira.set(msg);
+        },
+      });
   }
 
   confirmarExcluirCarteira(): void {
@@ -131,7 +139,9 @@ export class CarteiraComponent implements OnInit {
       return;
     }
 
-    const confirmou = confirm(`Deseja realmente excluir a carteira "${carteira.nome}"?\nTodas as posições e transações vinculadas a ela serão excluídas definitivamente.`);
+    const confirmou = confirm(
+      `Deseja realmente excluir a carteira "${carteira.nome}"?\nTodas as posições e transações vinculadas a ela serão excluídas definitivamente.`,
+    );
     if (!confirmou) return;
 
     this.excluindoCarteira.set(true);
@@ -143,14 +153,19 @@ export class CarteiraComponent implements OnInit {
         this.excluindoCarteira.set(false);
         const msg = err.error?.detail || 'Erro ao excluir carteira.';
         alert(msg);
-      }
+      },
     });
   }
 
   formatarMoeda(valor: string | number): string {
     const num = typeof valor === 'string' ? parseFloat(valor) : valor;
     if (isNaN(num)) return 'R$ 0,00';
-    return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    return num.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    });
   }
 
   formatarQuantidade(valor: string | number, tipo?: string): string {
@@ -164,11 +179,16 @@ export class CarteiraComponent implements OnInit {
 
   getBadgeClass(tipo?: string): string {
     switch (tipo) {
-      case 'Acao': return 'badge-acao';
-      case 'FII': return 'badge-fii';
-      case 'Cripto': return 'badge-cripto';
-      case 'RendaFixa': return 'badge-rf';
-      default: return 'badge-default';
+      case 'Acao':
+        return 'badge-acao';
+      case 'FII':
+        return 'badge-fii';
+      case 'Cripto':
+        return 'badge-cripto';
+      case 'RendaFixa':
+        return 'badge-rf';
+      default:
+        return 'badge-default';
     }
   }
 }

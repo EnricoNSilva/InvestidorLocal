@@ -10,7 +10,7 @@ import { RetornoImportacao } from '../../core/models/investimento.models';
   standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './importacao.component.html',
-  styleUrl: './importacao.component.scss'
+  styleUrl: './importacao.component.scss',
 })
 export class ImportacaoComponent {
   readonly carteiraService = inject(CarteiraService);
@@ -18,7 +18,7 @@ export class ImportacaoComponent {
   readonly carteiraAtiva = computed(() => {
     const ativas = this.carteiraService.carteiras();
     const id = this.carteiraService.carteiraAtivaId();
-    return ativas.find(c => c.id === id) || ativas[0] || null;
+    return ativas.find((c) => c.id === id) || ativas[0] || null;
   });
 
   onCarteiraChange(event: Event): void {
@@ -91,7 +91,7 @@ export class ImportacaoComponent {
         const detail = err.error?.detail || 'Erro ao processar planilha de movimentações da B3.';
         this.erroB3Transf.set(detail);
         this.loadingB3Transf.set(false);
-      }
+      },
     });
   }
 
@@ -112,7 +112,7 @@ export class ImportacaoComponent {
         const detail = err.error?.detail || 'Erro ao processar planilha da B3.';
         this.erroB3.set(detail);
         this.loadingB3.set(false);
-      }
+      },
     });
   }
 
@@ -133,7 +133,7 @@ export class ImportacaoComponent {
         const detail = err.error?.detail || 'Erro ao processar planilha da Binance.';
         this.erroBinance.set(detail);
         this.loadingBinance.set(false);
-      }
+      },
     });
   }
 }
