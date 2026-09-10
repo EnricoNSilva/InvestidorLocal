@@ -87,16 +87,22 @@ async def upload_binance(
 
     try:
         content = await file.read()
-        transacoes = processar_planilha_binance(db=db, file_content=content, carteira_id=carteira_id)
+        resultado = processar_planilha_binance(db=db, file_content=content, carteira_id=carteira_id)
+        transacoes = resultado["transacoes"]
+        pendencias = resultado["pendencias"]
+        aba = resultado.get("aba_processada", "Order History")
         return {
             "status": "success",
             "origem": "Binance",
             "filename": file.filename,
             "carteira_id": carteira_id,
             "transacoes_processadas": len(transacoes),
-            "mensagem": f"{len(transacoes)} ordens da Binance processadas na fila cronológica única com PTAX."
+            "pendencias": pendencias,
+            "mensagem": f"{len(transacoes)} ordens da Binance processadas com sucesso a partir da aba '{aba}'." + (f" {len(pendencias)} pendências detectadas." if pendencias else "")
         }
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Erro ao processar planilha da Binance: {str(exc)}"

@@ -185,6 +185,9 @@
         <div>
           <strong>Sucesso!</strong>
           <p>{{ resultadoBinance()?.mensagem }}</p>
+          <ul *ngIf="resultadoBinance()?.pendencias?.length" class="pendencias-list">
+            <li *ngFor="let p of resultadoBinance()?.pendencias">{{ p }}</li>
+          </ul>
         </div>
       </div>
 

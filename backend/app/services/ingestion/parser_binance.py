@@ -57,30 +57,94 @@ def to_decimal(val) -> Decimal:
         return Decimal(f"{val:.12f}".rstrip("0").rstrip(".") if "." in f"{val:.12f}" else f"{val:.12f}")
     return Decimal(str(val))
 
+# Constantes de pares e moedas
+STABLECOINS = {"USDT", "USDC", "FDUSD", "BUSD", "DAI"}
+
+CRYPTO_NAMES = {
+    "BTC": "Bitcoin",
+    "ETH": "Ethereum",
+    "SOL": "Solana",
+    "USDT": "Tether USD",
+    "USDC": "USD Coin",
+    "FDUSD": "First Digital USD",
+    "BUSD": "Binance USD",
+    "DAI": "Dai",
+    "AAVE": "Aave",
+    "PENDLE": "Pendle",
+    "ERA": "Caldera / Era",
+    "BNB": "BNB",
+    "ADA": "Cardano",
+    "XRP": "XRP",
+    "DOT": "Polkadot",
+    "AVAX": "Avalanche",
+    "LINK": "Chainlink",
+}
+
+def parse_market_symbol(market: str, amount_unit: Optional[str] = None, price_unit: Optional[str] = None) -> tuple[str, str]:
+    """
+    Identifica o ticker do ativo negociado (base) e a moeda de cotação (quote).
+    Prioriza as colunas explícitas Amount Unit e Price Unit quando disponíveis.
+    """
+    market = str(market).strip().upper()
+    if amount_unit and str(amount_unit).strip() and str(amount_unit).strip().upper() != "NAN":
+        base_ticker = str(amount_unit).strip().upper()
+        quote_ticker = str(price_unit).strip().upper() if price_unit and str(price_unit).strip() != "NAN" else "USDT"
+        return base_ticker, quote_ticker
+
+    if market.endswith("BRL"):
+        return market[:-3], "BRL"
+    for s in STABLECOINS:
+        if market.endswith(s):
+            return market[:-len(s)], s
+    return market, "USD"
+
 def processar_planilha_binance(
     db: Session,
     file_content: Union[BinaryIO, bytes],
     carteira_id: Optional[int] = 1,
-    ticker_base: str = "BTC",
-    nome_ativo: str = "Bitcoin"
-) -> List[Transacao]:
+    ticker_base: Optional[str] = None,
+    nome_ativo: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Processa ordens da Binance a partir de exportações de 'Order History' ou relatórios de dados do usuário ('Spot Order History').
+    Processa todos os pares negociados (ex: BTC, ETH, SOL, USDTBRL, etc.), convertendo cotações em USD/stables para BRL via PTAX oficial.
+    """
     if isinstance(file_content, bytes):
         file_content = io.BytesIO(file_content)
 
     excel_file = pd.ExcelFile(file_content)
-    sheet_name = "Order History" if "Order History" in excel_file.sheet_names else excel_file.sheet_names[0]
+    
+    # Descoberta inteligente da aba de ordens Spot
+    sheet_name = None
+    candidates = ["spot order history", "order history", "spot order", "spot history", "orders"]
+    for s in excel_file.sheet_names:
+        if s.lower().strip() in candidates:
+            sheet_name = s
+            break
+    if not sheet_name:
+        for s in excel_file.sheet_names:
+            if "spot" in s.lower() and "order" in s.lower():
+                sheet_name = s
+                break
+    if not sheet_name:
+        # Fallback: primeira aba
+        sheet_name = excel_file.sheet_names[0]
+
     df = pd.read_excel(excel_file, sheet_name=sheet_name)
 
     trade_qty_col = next((c for c in df.columns if "trade qty" in str(c).lower() or "executed" in str(c).lower()), None)
     if not trade_qty_col:
-        raise ValueError(f"Coluna 'Trade Qty' não encontrada na planilha da Binance. Colunas: {list(df.columns)}")
+        raise ValueError(
+            f"Coluna de quantidade executada ('Trade Qty' ou 'Executed') não encontrada na aba '{sheet_name}'. "
+            f"Colunas disponíveis: {list(df.columns)}"
+        )
 
     df["_trade_qty_num"] = pd.to_numeric(df[trade_qty_col], errors="coerce").fillna(0)
     df_executed = df[df["_trade_qty_num"] > 0].copy()
 
     time_col = next((c for c in df_executed.columns if "time" in str(c).lower() or "date" in str(c).lower()), None)
     if not time_col:
-        raise ValueError("Coluna de data/hora 'Time' não encontrada na planilha Binance.")
+        raise ValueError(f"Coluna de data/hora ('Time' ou 'Date') não encontrada na aba '{sheet_name}'.")
 
     df_executed["_time_dt"] = pd.to_datetime(df_executed[time_col], format="mixed")
     df_executed = df_executed.sort_values("_time_dt").reset_index(drop=True)
@@ -90,24 +154,21 @@ def processar_planilha_binance(
     price_col = next((c for c in df_executed.columns if "average price" in str(c).lower() or "avg price" in str(c).lower() or "price" in str(c).lower()), "Average Price")
     fee_col = next((c for c in df_executed.columns if str(c).strip().lower() == "fee"), None)
     fee_coin_col = next((c for c in df_executed.columns if "fee coin" in str(c).lower() or "fee asset" in str(c).lower()), None)
+    amount_unit_col = next((c for c in df_executed.columns if "amount unit" in str(c).lower()), None)
+    price_unit_col = next((c for c in df_executed.columns if "price unit" in str(c).lower()), None)
 
-    ativo = db.query(Ativo).filter(Ativo.ticker == ticker_base).first()
-    if not ativo:
-        ativo = Ativo(
-            ticker=ticker_base,
-            nome=nome_ativo,
-            tipo=TipoAtivo.Cripto,
-            setor="Criptomoedas"
-        )
-        db.add(ativo)
-        db.flush()
-
-    btc_pairs = {"BTCBRL"}.union(USD_STABLE_PAIRS)
-    transacoes_criadas = []
+    transacoes_criadas: List[Transacao] = []
+    pendencias: List[str] = []
 
     for _, row in df_executed.iterrows():
-        market = str(row[market_col]).strip().upper()
-        if market not in btc_pairs:
+        market_raw = str(row[market_col]).strip().upper()
+        amount_unit_val = str(row[amount_unit_col]).strip() if amount_unit_col and pd.notna(row.get(amount_unit_col)) else None
+        price_unit_val = str(row[price_unit_col]).strip() if price_unit_col and pd.notna(row.get(price_unit_col)) else None
+
+        base_ticker, quote_ticker = parse_market_symbol(market_raw, amount_unit_val, price_unit_val)
+
+        # Se um ticker específico foi solicitado e difere do identificado
+        if ticker_base and base_ticker != ticker_base.upper():
             continue
 
         side_raw = str(row[side_col]).strip().upper()
@@ -132,10 +193,24 @@ def processar_planilha_binance(
         fee = to_decimal(row[fee_col]) if fee_col and pd.notna(row.get(fee_col)) else Decimal("0.0")
         fee_coin = str(row[fee_coin_col]).strip().upper() if fee_coin_col and pd.notna(row.get(fee_coin_col)) else ""
 
-        if market == "BTCBRL":
+        # Obtenção ou cadastro do Ativo
+        ativo = db.query(Ativo).filter(Ativo.ticker == base_ticker).first()
+        if not ativo:
+            nome_cripto = CRYPTO_NAMES.get(base_ticker, f"Cripto {base_ticker}")
+            ativo = Ativo(
+                ticker=base_ticker,
+                nome=nome_cripto,
+                tipo=TipoAtivo.Cripto,
+                setor="Criptomoedas"
+            )
+            db.add(ativo)
+            db.flush()
+
+        # Determinação de Moeda e Cotação PTAX
+        if quote_ticker == "BRL":
             ptax_used = Decimal("1.0")
             moeda = "BRL"
-            if fee_coin == ticker_base:
+            if fee_coin == base_ticker:
                 fee_brl = fee * avg_price
             else:
                 fee_brl = fee
@@ -144,7 +219,7 @@ def processar_planilha_binance(
             moeda = "USD"
             if fee_coin == "BRL":
                 fee_brl = fee
-            elif fee_coin == ticker_base:
+            elif fee_coin == base_ticker:
                 fee_brl = fee * avg_price * ptax_used
             else:
                 fee_brl = fee * ptax_used
@@ -159,10 +234,20 @@ def processar_planilha_binance(
             taxas=fee_brl,
             moeda=moeda,
             moeda_taxa="BRL",
-            ptax_utilizada=ptax_used if market != "BTCBRL" else None
+            ptax_utilizada=ptax_used if quote_ticker != "BRL" else None
         )
 
-        tx = processar_transacao(db=db, transacao_in=transacao_in)
-        transacoes_criadas.append(tx)
+        try:
+            tx = processar_transacao(db=db, transacao_in=transacao_in)
+            transacoes_criadas.append(tx)
+        except Exception as p_err:
+            db.rollback()
+            pendencias.append(
+                f"Ordem {tipo_operacao.value} de {trade_qty} {base_ticker} em {dt_obj.strftime('%d/%m/%Y %H:%M')}: {str(p_err)}"
+            )
 
-    return transacoes_criadas
+    return {
+        "transacoes": transacoes_criadas,
+        "pendencias": pendencias,
+        "aba_processada": sheet_name
+    }
