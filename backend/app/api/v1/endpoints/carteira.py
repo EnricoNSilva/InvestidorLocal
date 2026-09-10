@@ -1,4 +1,4 @@
-﻿from typing import List, Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
@@ -69,6 +69,23 @@ def excluir_carteira(
     db.delete(carteira)
     db.commit()
     return {"status": "success", "mensagem": f"Carteira '{carteira.nome}' excluída com sucesso."}
+
+@router.post("/carteiras/{carteira_id}/limpar", status_code=status.HTTP_200_OK, summary="Limpar histórico e posições de uma carteira")
+def limpar_carteira(
+    carteira_id: int,
+    db: Session = Depends(get_db)
+):
+    carteira = db.query(Carteira).filter(Carteira.id == carteira_id).first()
+    if not carteira:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Carteira com ID {carteira_id} não encontrada."
+        )
+
+    carteira.transacoes.clear()
+    carteira.posicoes.clear()
+    db.commit()
+    return {"status": "success", "mensagem": f"Histórico e posições da carteira '{carteira.nome}' foram zerados com sucesso."}
 
 # --- Endpoint de Posições Consolidadas ---
 

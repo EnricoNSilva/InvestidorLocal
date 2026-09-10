@@ -28,6 +28,7 @@ export class CarteiraComponent implements OnInit {
 
   // Controle de Exclusão de Carteira
   readonly excluindoCarteira = signal<boolean>(false);
+  readonly limpandoCarteira = signal<boolean>(false);
 
   readonly carteiraAtiva = computed<Carteira | null>(() => {
     const ativas = this.carteiraService.carteiras();
@@ -156,6 +157,29 @@ export class CarteiraComponent implements OnInit {
       error: (err) => {
         this.excluindoCarteira.set(false);
         const msg = err.error?.detail || 'Erro ao excluir carteira.';
+        alert(msg);
+      },
+    });
+  }
+
+  confirmarLimparCarteira(): void {
+    const carteira = this.carteiraAtiva();
+    if (!carteira) return;
+
+    const confirmou = confirm(
+      `Deseja realmente zerar todas as transações e posições da carteira "${carteira.nome}"?\nOs ativos serão limpos para permitir uma nova importação limpa.`,
+    );
+    if (!confirmou) return;
+
+    this.limpandoCarteira.set(true);
+    this.carteiraService.limparCarteira(carteira.id).subscribe({
+      next: () => {
+        this.limpandoCarteira.set(false);
+        this.carregarPosicoes(carteira.id);
+      },
+      error: (err) => {
+        this.limpandoCarteira.set(false);
+        const msg = err.error?.detail || 'Erro ao limpar dados da carteira.';
         alert(msg);
       },
     });

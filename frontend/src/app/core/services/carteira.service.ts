@@ -74,6 +74,13 @@ export class CarteiraService {
       );
   }
 
+  limparCarteira(carteiraId: number): Observable<{ status: string; mensagem: string }> {
+    return this.http.post<{ status: string; mensagem: string }>(
+      `${this.baseUrl}/posicoes/carteiras/${carteiraId}/limpar`,
+      {},
+    );
+  }
+
   getPosicoes(
     carteiraId?: number,
     somenteComSaldo: boolean = true,

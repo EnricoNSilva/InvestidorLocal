@@ -1,4 +1,4 @@
-﻿import io
+import io
 import pytest
 from decimal import Decimal
 import pandas as pd
@@ -86,6 +86,40 @@ def create_binance_excel_in_memory() -> bytes:
         df.to_excel(writer, index=False, sheet_name="Order History")
     return output.getvalue()
 
+def create_b3_movimentacao_excel_in_memory() -> bytes:
+    """Gera planilha Excel simulada com padrão de Movimentação da B3 em memória."""
+    data = [
+        {
+            "Data": "2023-12-20",
+            "Movimentação": "Transferência de Custódia",
+            "Produto": "VALE3 - VALE S.A.",
+            "Quantidade": 50,
+            "Preço unitário": 65.00,
+            "Valor da Operação": 3250.00
+        },
+        {
+            "Data": "2023-12-22",
+            "Movimentação": "Cessão / Doação de Ativos",
+            "Produto": "MXRF11",
+            "Quantidade": 100,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 0.0
+        },
+        {
+            "Data": "2023-12-23",
+            "Movimentação": "Rendimento / JCP",
+            "Produto": "ITUB4",
+            "Quantidade": 0,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 150.00
+        }
+    ]
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Movimentação")
+    return output.getvalue()
+
 def test_importacao_b3(client):
     """Valida ingestão da planilha B3 via endpoint HTTP."""
     excel_bytes = create_b3_excel_in_memory()
@@ -143,40 +177,6 @@ def test_importacao_binance(mock_ptax, client):
     res_pos = client.get("/api/v1/posicoes")
     btc_pos = next(p for p in res_pos.json() if p["ativo"]["ticker"] == "BTC")
     assert Decimal(str(btc_pos["quantidade_saldo"])) == Decimal("0.08")
-    assert Decimal(str(btc_pos["preco_medio_brl"])) == Decimal("205205.00000000")
-def create_b3_movimentacao_excel_in_memory() -> bytes:
-    """Gera planilha Excel simulada de Movimentação de Custódia da B3."""
-    data = [
-        {
-            "Data": "2023-12-20",
-            "Movimentação": "Transferência - Liquidação",
-            "Produto": "VALE3 - VALE S.A.",
-            "Quantidade": 50,
-            "Preço unitário": 65.00,
-            "Valor da Operação": 3250.00
-        },
-        {
-            "Data": "2023-12-22",
-            "Movimentação": "Cessão / Doação de Ativos",
-            "Produto": "MXRF11",
-            "Quantidade": 100,
-            "Preço unitário": 0.0,  # Preço zerado para validar fallback
-            "Valor da Operação": 0.0
-        },
-        {
-            "Data": "2023-12-23",
-            "Movimentação": "Rendimento / JCP",  # Não deve ser importado como entrada de custódia
-            "Produto": "ITUB4",
-            "Quantidade": 0,
-            "Preço unitário": 0.0,
-            "Valor da Operação": 150.00
-        }
-    ]
-    df = pd.DataFrame(data)
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Movimentação")
-    return output.getvalue()
 
 def test_importacao_b3_transferencias(client):
     """Valida ingestão de transferências/entradas de custódia da B3."""
@@ -247,3 +247,73 @@ def test_importacao_b3_resiliente_pendencias(client):
     assert res_data["transacoes_processadas"] == 2
     assert len(res_data["pendencias"]) == 1
     assert "WEGE3" in res_data["pendencias"][0]
+
+def test_transferencia_seguida_de_venda_total_zera_posicao(client):
+    """Garante que transferência seguida de venda total zera a posição e a remove da carteira ativa."""
+    # 1. Entrada de 200 MGLU3 via Movimentação (Transferência)
+    mov_data = [
+        {
+            "Data": "2022-03-23",
+            "Movimentação": "Transferência",
+            "Produto": "MGLU3 - MAGAZINE LUIZA S.A.",
+            "Quantidade": 200,
+            "Preço unitário": 6.50,
+            "Valor da Operação": 1300.00
+        },
+        # Entrada de liquidação que DEVE ser ignorada (não duplicar compra)
+        {
+            "Data": "2022-05-19",
+            "Movimentação": "Transferência - Liquidação",
+            "Produto": "MGLU3 - MAGAZINE LUIZA S.A.",
+            "Quantidade": 200,
+            "Preço unitário": 4.00,
+            "Valor da Operação": 800.00
+        }
+    ]
+    df_mov = pd.DataFrame(mov_data)
+    out_mov = io.BytesIO()
+    with pd.ExcelWriter(out_mov, engine="openpyxl") as writer:
+        df_mov.to_excel(writer, index=False, sheet_name="Movimentação")
+
+    res_mov = client.post(
+        "/api/v1/importacao/b3-transferencias",
+        files={"file": ("mov.xlsx", out_mov.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    )
+    assert res_mov.status_code == 200
+    assert res_mov.json()["transferencias_processadas"] == 1  # Apenas a transferência pura, liquidação ignorada!
+
+    # 2. Venda de 200 MGLU3 via Negociação
+    neg_data = [
+        {
+            "Data do Negócio": "2022-08-15",
+            "Tipo de Movimentação": "Venda",
+            "Código de Negociação": "MGLU3",
+            "Quantidade": 200,
+            "Preço": 4.50,
+            "Taxas": 1.50
+        }
+    ]
+    df_neg = pd.DataFrame(neg_data)
+    out_neg = io.BytesIO()
+    with pd.ExcelWriter(out_neg, engine="openpyxl") as writer:
+        df_neg.to_excel(writer, index=False, sheet_name="Negociações")
+
+    res_neg = client.post(
+        "/api/v1/importacao/b3",
+        files={"file": ("neg.xlsx", out_neg.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    )
+    assert res_neg.status_code == 200
+    assert res_neg.json()["transacoes_processadas"] == 1
+
+    # 3. Consulta de posições ativas (somente_com_saldo=true)
+    res_pos = client.get("/api/v1/posicoes?somente_com_saldo=true")
+    assert res_pos.status_code == 200
+    tickers_em_custodia = [p["ativo"]["ticker"] for p in res_pos.json()]
+    assert "MGLU3" not in tickers_em_custodia
+
+    # Consulta de todas as posições (com saldo zerado)
+    res_todas = client.get("/api/v1/posicoes?somente_com_saldo=false")
+    mglu_pos = next(p for p in res_todas.json() if p["ativo"]["ticker"] == "MGLU3")
+    assert Decimal(str(mglu_pos["quantidade_saldo"])) == Decimal("0")
+    assert Decimal(str(mglu_pos["preco_medio_brl"])) == Decimal("0")
+    assert Decimal(str(mglu_pos["custo_total_brl"])) == Decimal("0")

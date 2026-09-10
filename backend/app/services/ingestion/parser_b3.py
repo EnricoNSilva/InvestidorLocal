@@ -1,5 +1,6 @@
-﻿import io
+import io
 import re
+import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import BinaryIO, Dict, List, Optional, Tuple, Union
@@ -43,62 +44,96 @@ def to_decimal(val) -> Decimal:
     except Exception:
         return Decimal("0.0")
 
+def normalize_col(col: str) -> str:
+    """Remove acentuações e padroniza string para comparação robusta de colunas."""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(col)) if not unicodedata.combining(c)).lower().strip()
+
 def processar_planilha_b3(
     db: Session,
     file_content: Union[BinaryIO, bytes],
     carteira_id: Optional[int] = 1
 ) -> Tuple[List[Transacao], List[str]]:
+    """
+    Processa o extrato de Negociação da B3 (compras e vendas regulares de ações/FIIs).
+    Normaliza nomes de colunas, ordena cronologicamente com prioridade para compras no mesmo dia,
+    e efetua rollback por linha com registro de pendências em caso de inconsistência de saldo.
+    """
     if isinstance(file_content, bytes):
         file_content = io.BytesIO(file_content)
 
     df = pd.read_excel(file_content)
 
-    col_map = {}
+    col_map: Dict[str, str] = {}
     for col in df.columns:
-        norm = str(col).strip().lower()
-        if "data" in norm and ("negocia" in norm or "opera" in norm or norm == "data"):
+        norm = normalize_col(col)
+        if "data" in norm and ("negoc" in norm or "opera" in norm or "pregao" in norm or norm == "data"):
             col_map["data"] = col
-        elif "movimenta" in norm or "tipo" in norm or "compra" in norm or "venda" in norm:
-            if "ativo" not in norm:
-                col_map["operacao"] = col
-        elif "código" in norm or "codigo" in norm or "ticker" in norm or "ativo" in norm:
+        elif ("movimenta" in norm or "tipo" in norm or norm in ["operacao", "c/v"]) and "ativo" not in norm and "codigo" not in norm and "valor" not in norm and "mercado" not in norm:
+            col_map["operacao"] = col
+        elif "codigo" in norm or "ticker" in norm or "ativo" in norm:
             if "tipo" not in norm:
                 col_map["ticker"] = col
         elif "quantidade" in norm or "qtd" in norm:
             col_map["quantidade"] = col
-        elif "preço" in norm or "preco" in norm or "valor unit" in norm:
+        elif "preco" in norm or "valor unit" in norm or "cotacao" in norm:
             col_map["preco"] = col
-        elif "taxa" in norm or "custo" in norm or "emolumentos" in norm or "corretagem" in norm:
+        elif "taxa" in norm or "custo" in norm or "emolumento" in norm or "corretagem" in norm:
             col_map["taxas"] = col
+
+    # Fallback para coluna de data se não tiver casado com os termos específicos
+    if "data" not in col_map:
+        for col in df.columns:
+            norm = normalize_col(col)
+            if "data" in norm and "vencimento" not in norm and "liquidacao" not in norm:
+                col_map["data"] = col
+                break
 
     if "ticker" not in col_map or "quantidade" not in col_map or "preco" not in col_map:
         raise ValueError(f"Formato da planilha B3 inválido ou colunas obrigatórias não encontradas: {list(df.columns)}")
 
     if "data" in col_map:
-        df["_data_dt"] = pd.to_datetime(df[col_map["data"]], dayfirst=True, format="mixed")
+        def _parse_dt(v):
+            if pd.isna(v):
+                return pd.NaT
+            if isinstance(v, (pd.Timestamp, datetime)):
+                return v
+            s = str(v).strip()
+            if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+                return pd.to_datetime(s, errors="coerce")
+            return pd.to_datetime(s, dayfirst=True, format="mixed", errors="coerce")
+
+        df["_data_dt"] = df[col_map["data"]].apply(_parse_dt)
     else:
         df["_data_dt"] = datetime.now(timezone.utc)
 
-    df = df.sort_values("_data_dt").reset_index(drop=True)
+    # Identifica o tipo de operação para ordenar compras antes de vendas na mesma data
+    def identificar_operacao(val) -> TipoOperacao:
+        norm_op = normalize_col(val)
+        if "venda" in norm_op or "sell" in norm_op or norm_op == "v":
+            return TipoOperacao.SELL
+        return TipoOperacao.BUY
+
+    operacao_col = col_map.get("operacao")
+    if operacao_col:
+        df["_tipo_op"] = df[operacao_col].apply(identificar_operacao)
+    else:
+        df["_tipo_op"] = TipoOperacao.BUY
+
+    # Prioridade 0 para BUY e 1 para SELL, garantindo que aquisições no mesmo dia venham antes
+    df["_priority"] = df["_tipo_op"].apply(lambda op: 0 if op == TipoOperacao.BUY else 1)
+    df = df.sort_values(["_data_dt", "_priority"]).reset_index(drop=True)
 
     transacoes_criadas: List[Transacao] = []
     pendencias: List[str] = []
 
     for _, row in df.iterrows():
-        ticker_raw = str(row[col_map["ticker"]]).strip().upper()
-        if len(ticker_raw) == 6 and ticker_raw.endswith("F") and ticker_raw[:5].isalnum():
-            ticker = ticker_raw[:-1]
+        raw_ticker = str(row[col_map["ticker"]]).split()[0].replace("-", "").strip().upper()
+        if len(raw_ticker) == 6 and raw_ticker.endswith("F") and raw_ticker[:5].isalnum():
+            ticker = raw_ticker[:-1]
         else:
-            ticker = ticker_raw
+            ticker = raw_ticker
 
-        tipo_op_str = str(row.get(col_map.get("operacao", ""), "")).strip().upper()
-        if "COMPRA" in tipo_op_str or "BUY" in tipo_op_str or tipo_op_str == "C":
-            tipo_operacao = TipoOperacao.BUY
-        elif "VENDA" in tipo_op_str or "SELL" in tipo_op_str or tipo_op_str == "V":
-            tipo_operacao = TipoOperacao.SELL
-        else:
-            tipo_operacao = TipoOperacao.BUY
-
+        tipo_operacao = row["_tipo_op"]
         quantidade = to_decimal(row[col_map["quantidade"]])
         preco_unitario = to_decimal(row[col_map["preco"]])
         taxas = to_decimal(row.get(col_map.get("taxas", ""), 0)) if "taxas" in col_map else Decimal("0.0")

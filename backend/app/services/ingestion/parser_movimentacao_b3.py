@@ -1,5 +1,6 @@
 import io
 import re
+import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import BinaryIO, Dict, List, Optional, Union
@@ -13,26 +14,39 @@ from app.schemas.transacao import TransacaoCreate
 from app.services.portfolio import processar_transacao
 from app.services.ingestion.parser_b3 import inferir_tipo_ativo, to_decimal
 
-TERMOS_TRANSFERENCIA = [
-    "TRANSFERENCIA",
-    "TRANSFERÊNCIA",
-    "DOACAO",
-    "DOAÇÃO",
-    "CESSAO",
-    "CESSÃO",
-    "ENTRADA",
-    "CREDITO",
-    "CRÉDITO",
-    "BONIFICACAO",
-    "BONIFICAÇÃO",
-    "DEPOSITO",
-    "DEPÓSITO"
+def normalize_col(col: str) -> str:
+    """Remove acentuações e padroniza string para comparação robusta."""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(col)) if not unicodedata.combining(c)).lower().strip()
+
+# Termos que identificam eventos genuínos de custódia inicial / externa / bonificação
+TERMOS_CUSTODIA = [
+    "transferencia",
+    "doacao",
+    "cessao",
+    "bonificacao",
+    "deposito",
+    "custodia"
 ]
 
-def eh_transferencia_entrada(tipo_mov: str) -> bool:
-    """Verifica se a movimentação corresponde a uma entrada ou transferência de custódia."""
-    norm = tipo_mov.strip().upper()
-    return any(termo in norm for termo in TERMOS_TRANSFERENCIA)
+def eh_transferencia_custodia_valida(tipo_mov: str) -> bool:
+    """
+    Verifica se a movimentação corresponde a uma entrada ou transferência de custódia real.
+    CRÍTICO: Exclui expressamente 'Liquidação' / 'Transferência - Liquidação',
+    pois estas são liquidações de compras regulares do pregão que já constam na planilha de Negociação!
+    Também exclui proventos financeiros em dinheiro (dividendos, JCP, rendimentos) e direitos não exercidos.
+    """
+    norm = normalize_col(tipo_mov)
+    
+    # 1. Rejeita liquidação de pregão (para não duplicar com negociacao.xlsx)
+    if "liquida" in norm:
+        return False
+
+    # 2. Rejeita proventos em dinheiro
+    if any(p in norm for p in ["dividendo", "juros sobre", "rendimento", "amortizacao", "direito"]):
+        return False
+
+    # 3. Aceita apenas eventos genuínos de custódia
+    return any(termo in norm for termo in TERMOS_CUSTODIA)
 
 def processar_planilha_movimentacao_b3(
     db: Session,
@@ -42,10 +56,10 @@ def processar_planilha_movimentacao_b3(
 ) -> Dict[str, Union[List[Transacao], List[str]]]:
     """
     Lê o arquivo de 'Movimentação' da B3 via Pandas.
-    Filtra linhas cujo tipo contenha termos como 'Transferência', 'Doação', 'Cessão'
-    ou indicativo de crédito/entrada de ativos.
+    Filtra linhas cujo tipo contenha termos como 'Transferência', 'Doação', 'Cessão' ou 'Bonificação em Ativos'.
+    Ignora liquidações de pregão ('Transferência - Liquidação') para evitar duplicidade com o extrato de Negociação.
     Extrai: Data, Ticker (normalizando fracionários terminados em 'F'), Quantidade e Preço/Valor.
-    Caso o preço unitário venha zerado na planilha da B3, defina um fallback ou utilize o preço presente.
+    Caso o preço unitário venha zerado na planilha da B3, define um fallback de R$ 1.0 ou utiliza o preço presente.
     Cria o ativo caso não exista e registra como TRANSFERENCIA_ENTRADA via processar_transacao.
     """
     if isinstance(file_content, bytes):
@@ -53,22 +67,22 @@ def processar_planilha_movimentacao_b3(
 
     df = pd.read_excel(file_content)
 
-    col_map = {}
+    col_map: Dict[str, str] = {}
     for col in df.columns:
-        norm = str(col).strip().lower()
-        if "data" in norm:
+        norm = normalize_col(col)
+        if "data" in norm and "liquidacao" not in norm:
             col_map["data"] = col
         elif "movimenta" in norm or "tipo" in norm or "evento" in norm or "descri" in norm:
             if "ativo" not in norm and "produto" not in norm:
                 col_map["movimentacao"] = col
-        elif "código" in norm or "codigo" in norm or "ticker" in norm or "produto" in norm or "ativo" in norm:
+        elif "codigo" in norm or "ticker" in norm or "produto" in norm or "ativo" in norm:
             if "tipo" not in norm:
                 col_map["ticker"] = col
         elif "quantidade" in norm or "qtd" in norm:
             col_map["quantidade"] = col
-        elif "preço" in norm or "preco" in norm or "valor unit" in norm or "cotacao" in norm:
+        elif "preco" in norm or "valor unit" in norm or "cotacao" in norm:
             col_map["preco"] = col
-        elif "entrada" in norm or "saida" in norm or "saída" in norm or "sentido" in norm:
+        elif "entrada" in norm or "saida" in norm or "sentido" in norm:
             col_map["entrada_saida"] = col
         elif "valor total" in norm or "operacao" in norm or "valor da op" in norm:
             col_map["valor_total"] = col
@@ -80,7 +94,17 @@ def processar_planilha_movimentacao_b3(
 
     # Trata data
     if "data" in col_map:
-        df["_data_dt"] = pd.to_datetime(df[col_map["data"]], dayfirst=True, format="mixed")
+        def _parse_dt(v):
+            if pd.isna(v):
+                return pd.NaT
+            if isinstance(v, (pd.Timestamp, datetime)):
+                return v
+            s = str(v).strip()
+            if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+                return pd.to_datetime(s, errors="coerce")
+            return pd.to_datetime(s, dayfirst=True, format="mixed", errors="coerce")
+
+        df["_data_dt"] = df[col_map["data"]].apply(_parse_dt)
     else:
         df["_data_dt"] = datetime.now(timezone.utc)
 
@@ -92,14 +116,14 @@ def processar_planilha_movimentacao_b3(
     for _, row in df.iterrows():
         # Filtro de sentido: ignora Débito/Saída
         if "entrada_saida" in col_map:
-            sentido_str = str(row[col_map["entrada_saida"]]).strip().upper()
-            if "DEBITO" in sentido_str or "DÉBITO" in sentido_str or "SAIDA" in sentido_str or "SAÍDA" in sentido_str:
+            sentido_str = normalize_col(row[col_map["entrada_saida"]])
+            if "debito" in sentido_str or "saida" in sentido_str:
                 continue
 
-        # Filtro de tipo de movimentação se a coluna estiver presente
+        # Filtro estrito de transferência de custódia real
         if "movimentacao" in col_map:
             mov_str = str(row[col_map["movimentacao"]])
-            if not eh_transferencia_entrada(mov_str):
+            if not eh_transferencia_custodia_valida(mov_str):
                 continue
 
         ticker_raw = str(row[col_map["ticker"]]).strip().upper()
