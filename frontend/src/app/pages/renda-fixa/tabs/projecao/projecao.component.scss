@@ -1,0 +1,123 @@
+.card {
+  background: var(--bg-surface, #111726);
+  border: 1px solid var(--border-subtle, #1e2c47);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+
+  h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary, #f1f5f9);
+  }
+
+  .desc {
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+    margin-top: 2px;
+  }
+}
+
+.btn-group-toggles {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-group {
+  display: flex;
+  align-items: center;
+  background: var(--bg-elevated, #182238);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  transition: all 0.15s ease;
+
+  &.btn-primary {
+    background: var(--brand-primary, #3b82f6);
+    color: #fff;
+  }
+
+  &.btn-secondary:hover {
+    color: var(--text-primary, #f1f5f9);
+  }
+}
+
+.legend-callout {
+  background: var(--bg-card, #141c2e);
+  border-left: 3px solid var(--brand-primary, #3b82f6);
+  border-radius: 0 6px 6px 0;
+  padding: 14px 16px;
+  font-size: 12.5px;
+  color: var(--text-secondary, #94a3b8);
+  margin-top: 18px;
+
+  strong {
+    color: var(--text-primary, #f1f5f9);
+  }
+
+  ul {
+    margin-top: 8px;
+    list-style: none;
+    padding-left: 0;
+  }
+
+  li {
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.dot-legend {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-blue {
+  background: #3b82f6;
+}
+
+.dot-dashed {
+  background: #ffffff;
+  border: 1px dashed #64748b;
+}
+
+.dot-purple {
+  background: #c084fc;
+}
+
+.dot-green {
+  background: #10b981;
+}
+
+.dot-red {
+  background: #ef4444;
+}

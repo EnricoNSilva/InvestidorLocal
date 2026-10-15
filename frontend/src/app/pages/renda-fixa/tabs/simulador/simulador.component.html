@@ -1,0 +1,263 @@
+<div class="split-layout">
+  <!-- Coluna da Esquerda: Controles e Sliders de Simulação -->
+  <div class="card controls-card">
+    <div class="card-header">
+      <div>
+        <h2>Cenário de Venda Futura</h2>
+        <div class="desc">Ajuste os parâmetros para simular a marcação a mercado e o carrego.</div>
+      </div>
+    </div>
+
+    <!-- Slider 1: Prazo até a Venda -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span class="slider-label">Prazo até o Resgate <app-info-tip key="prazoResgate"></app-info-tip></span>
+        <span class="slider-value-badge">daqui a {{ fmtNum(store.sim().simYears, 1) }} ano(s)</span>
+      </div>
+      <input
+        type="range"
+        class="slider-control"
+        min="0.1"
+        max="15"
+        step="0.1"
+        [value]="store.sim().simYears"
+        (input)="onSlider({ simYears: +$any($event.target).value })"
+      />
+      <div class="scale-ticks">
+        <span>Hoje</span>
+        <span>5 anos</span>
+        <span>10 anos</span>
+        <span>15 anos</span>
+      </div>
+      <div class="slider-hint">
+        Data estimada da venda: <strong>{{ formatSimDate(store.simDNClamped()) }}</strong>
+      </div>
+    </div>
+
+    <!-- Slider 2: Taxa Real Alvo Futura -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span class="slider-label">Taxa Real do Título na Venda <app-info-tip key="taxaVenda"></app-info-tip></span>
+        <span class="slider-value-badge">IPCA + {{ fmtPctDirect(store.sim().targetRatePct) }}</span>
+      </div>
+      <input
+        type="range"
+        class="slider-control"
+        min="3.0"
+        max="10.0"
+        step="0.05"
+        [value]="store.sim().targetRatePct"
+        (input)="onSlider({ targetRatePct: +$any($event.target).value })"
+      />
+      <div class="scale-ticks">
+        <span>3,0% (Super Lucro)</span>
+        <span>6,55% (Atual)</span>
+        <span>10,0% (Estresse)</span>
+      </div>
+      <div class="btn-group presets-row">
+        <button class="btn btn-secondary btn-sm" (click)="setPresetNow()">Taxa Hoje</button>
+        <button class="btn btn-secondary btn-sm" (click)="setPresetAvg()">Média Carteira</button>
+        <button class="btn btn-secondary btn-sm" (click)="setPresetLow()">Queda (5%)</button>
+      </div>
+    </div>
+
+    <!-- Slider 3: Velocidade de Convergência -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span class="slider-label">Trajetória / Convergência <app-info-tip key="convergencia"></app-info-tip></span>
+        <span class="slider-value-badge">{{ store.sim().convMonths }} meses</span>
+      </div>
+      <input
+        type="range"
+        class="slider-control"
+        min="0"
+        max="60"
+        step="1"
+        [value]="store.sim().convMonths"
+        (input)="onSlider({ convMonths: +$any($event.target).value })"
+      />
+      <div class="scale-ticks">
+        <span>0 (Choque Imediato)</span>
+        <span>24 meses</span>
+        <span>60 meses (5 anos)</span>
+      </div>
+    </div>
+
+    <!-- Slider 4: IPCA Projetado -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span class="slider-label">IPCA Futuro Projetado <app-info-tip key="ipcaProjetado"></app-info-tip></span>
+        <span class="slider-value-badge">{{ fmtNum(store.premissas().ipcaProj, 1) }}% a.a.</span>
+      </div>
+      <input
+        type="range"
+        class="slider-control"
+        min="2.0"
+        max="10.0"
+        step="0.1"
+        [value]="store.premissas().ipcaProj"
+        (input)="onIpcaSlider(+$any($event.target).value)"
+      />
+      <div class="scale-ticks">
+        <span>2%</span>
+        <span>4,5%</span>
+        <span>7%</span>
+        <span>10%</span>
+      </div>
+    </div>
+
+    <!-- Input: Quantidade a Vender -->
+    <div class="form-group-qty">
+      <label>Quantidade de Títulos a Resgatar</label>
+      <div class="qty-row">
+        <input
+          type="number"
+          step="0.01"
+          min="0.01"
+          placeholder="Vender tudo ({{ fmtNum(store.vendaHoje().q) }})"
+          [value]="store.sim().qtyToSell"
+          (input)="onSlider({ qtyToSell: $any($event.target).value === '' ? '' : +$any($event.target).value })"
+          class="qty-input"
+        />
+        <button class="btn btn-secondary btn-sm" (click)="sellAll()">Vender Tudo</button>
+      </div>
+      <div class="slider-hint">
+        Simulando venda de: <strong>{{ fmtNum(store.vendaSim().q) }} títulos</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- Coluna da Direita: KPIs, Decomposição e Gráfico de Trajetória -->
+  <div class="results-column">
+    <div class="kpi-grid">
+      <app-kpi-card
+        label="PU Projetado"
+        [value]="fmtBRL(store.vendaSim().pu)"
+        [sub]="'Taxa Venda: IPCA + ' + fmtPct(store.rateAtSale())"
+        tooltipKey="puProjetado"
+      ></app-kpi-card>
+
+      <app-kpi-card
+        label="Saldo Líquido Projetado"
+        [value]="fmtBRL(store.vendaSim().liqReal)"
+        [sub]="'em R$ de hoje: ' + fmtBRL(store.simLiqDeflacionado())"
+        valClass="pos"
+        tooltipKey="saldoLiqProjetado"
+      ></app-kpi-card>
+
+      <app-kpi-card
+        label="Ganho Líquido Total"
+        [value]="(store.simLucroLiq() >= 0 ? '+' : '') + fmtBRL(store.simLucroLiq())"
+        [sub]="fmtBRL(store.vendaSim().custo) + ' custo resgatado'"
+        [valClass]="store.simLucroLiq() >= 0 ? 'pos' : 'neg'"
+        tooltipKey="ganhoLiqTotal"
+      ></app-kpi-card>
+
+      <app-kpi-card
+        label="Rentabilidade Projetada %"
+        [value]="(store.simReturnPct() >= 0 ? '+' : '') + fmtPct(store.simReturnPct())"
+        [sub]="'TIR Projetada: ' + fmtPct(store.simTIR()) + ' a.a.'"
+        [valClass]="store.simReturnPct() >= 0 ? 'pos' : 'neg'"
+        tooltipKey="rentabilidadeSim"
+      ></app-kpi-card>
+
+      <app-kpi-card
+        label="Comparado a Vender Hoje"
+        [value]="(store.simDiffHoje() >= 0 ? '+' : '') + fmtBRL(store.simDiffHoje())"
+        [sub]="'Hoje você teria ' + fmtBRL(store.nowResForSoldQty().liqReal)"
+        [valClass]="store.simDiffHoje() >= 0 ? 'pos' : 'neg'"
+        tooltipKey="comparadoHoje"
+      ></app-kpi-card>
+    </div>
+
+    <!-- Box de Decomposição: Carrego Puro vs Marcação a Mercado -->
+    <div class="card decomp-card">
+      <div class="decomp-title">
+        <span>⚖️</span> Decomposição do Ganho: Carrego Puro vs. Marcação a Mercado
+        <app-info-tip key="carregoPuro"></app-info-tip>
+      </div>
+      <div class="decomp-content">
+        Ganho Bruto Total de <strong>{{ fmtBRL(store.decomposicao().ganhoBrutoTotal) }}</strong> composto por:
+        <ul>
+          <li>
+            <strong class="pos">{{ fmtBRL(store.decomposicao().ganhoCarrego) }} de Carrego Puro ({{ fmtPct(store.decomposicao().pctCarrego, 1) }} do ganho):</strong>
+            juros contratados de cada lote corrigidos pelo IPCA.
+          </li>
+          <li>
+            <strong [ngClass]="store.decomposicao().ganhoMarcacao >= 0 ? 'pos' : 'neg'">
+              {{ store.decomposicao().ganhoMarcacao >= 0 ? '+' : '' }}{{ fmtBRL(store.decomposicao().ganhoMarcacao) }} de Marcação a Mercado ({{ fmtPct(store.decomposicao().pctMarcacao, 1) }} do ganho):
+            </strong>
+            impacto da oscilação da taxa de mercado para IPCA + {{ fmtPct(store.rateAtSale()) }}.
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Gráfico de Trajetória da Taxa -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Trajetória Projetada da Taxa</h2>
+          <div class="desc">Evolução da taxa de mercado ao longo dos meses até a convergência.</div>
+        </div>
+      </div>
+      <app-rate-trajectory-chart [points]="store.trajetoria()"></app-rate-trajectory-chart>
+    </div>
+  </div>
+</div>
+
+<!-- Tabela PEPS de Liquidação da Simulação -->
+<div class="card" style="margin-top: 20px;">
+  <div class="card-header">
+    <div>
+      <h2>
+        Demonstrativo de Liquidação PEPS no Resgate
+        <app-info-tip key="peps"></app-info-tip>
+      </h2>
+      <div class="desc">
+        Abertura lote a lote dos impostos, custos e ganho líquido no momento da venda projetada.
+      </div>
+    </div>
+  </div>
+
+  <div class="table-responsive-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Lote</th>
+          <th>Taxa Compra</th>
+          <th>Qtd. Vendida</th>
+          <th>Custo Lote</th>
+          <th>Valor Bruto</th>
+          <th>Custódia B3</th>
+          <th>IR Retido</th>
+          <th>Líquido Final</th>
+          <th>Ganho R$</th>
+          <th>Rentab. %</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (part of store.vendaSim().parts; track part.lot.id) {
+          @let lucroLote = part.liqReal - part.custo;
+          @let pctLote = part.custo > 0 ? (lucroLote / part.custo) : 0;
+          <tr>
+            <td>{{ formatDateBRL(part.lot.date) }}</td>
+            <td>IPCA + {{ fmtPctDirect(part.lot.rate) }}</td>
+            <td>{{ fmtNum(part.q) }}</td>
+            <td>{{ fmtBRL(part.custo) }}</td>
+            <td>{{ fmtBRL(part.bruto) }}</td>
+            <td>{{ fmtBRL(part.cust) }}</td>
+            <td>{{ fmtBRL(part.ir) }}</td>
+            <td class="pos" style="font-weight:700">{{ fmtBRL(part.liqReal) }}</td>
+            <td [ngClass]="lucroLote >= 0 ? 'pos' : 'neg'">
+              {{ lucroLote >= 0 ? '+' : '' }}{{ fmtBRL(lucroLote) }}
+            </td>
+            <td [ngClass]="pctLote >= 0 ? 'pos' : 'neg'" style="font-weight:600">
+              {{ pctLote >= 0 ? '+' : '' }}{{ fmtPct(pctLote) }}
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

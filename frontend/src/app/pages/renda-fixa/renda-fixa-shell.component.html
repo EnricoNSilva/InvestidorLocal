@@ -1,0 +1,125 @@
+<div class="shell-container">
+  <!-- Cabeçalho do Módulo de Renda Fixa -->
+  <header class="rf-header">
+    <div class="header-main">
+      <div class="titles">
+        <h1>
+          Tesouro RENDA+ 2065
+          <span class="badge-title">NTN-B1 · 240 Parcelas</span>
+        </h1>
+        @if (store.ativos().length > 1) {
+          <div class="ativo-selector">
+            <label for="ativoSelect">Ativo:</label>
+            <select
+              id="ativoSelect"
+              [ngModel]="store.ativoId()"
+              (ngModelChange)="onAtivoChange($event)"
+              class="ativo-select"
+            >
+              @for (a of store.ativos(); track a.id) {
+                <option [value]="a.id">{{ a.ticker }} - {{ a.nome }}</option>
+              }
+            </select>
+          </div>
+        }
+      </div>
+
+      <!-- Quick Stats no Topo -->
+      <div class="header-stats">
+        <div class="stat-pill">
+          <span class="lbl">Líquido (App):</span>
+          <strong class="val">{{ fmtBRL(store.vendaHoje().liqApp) }}</strong>
+        </div>
+        <div class="stat-pill">
+          <span class="lbl">Taxa Hoje:</span>
+          <strong class="val pos">IPCA + {{ fmtPct(store.calib().rNow) }}</strong>
+        </div>
+        <div class="stat-pill">
+          <span class="lbl">Rentabilidade:</span>
+          <strong class="val" [ngClass]="store.posReturnPctReal() >= 0 ? 'pos' : 'neg'">
+            {{ store.posReturnPctReal() >= 0 ? '+' : '' }}{{ fmtPct(store.posReturnPctReal()) }}
+          </strong>
+          <span class="sub-badge">TIR {{ fmtPct(store.posTIR()) }} a.a.</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navegação por Abas (IHC) -->
+  <nav class="rf-tabs" role="tablist">
+    <button
+      class="tab-btn"
+      [class.active]="store.activeTab() === 'posicao'"
+      (click)="setTab('posicao')"
+      role="tab"
+    >
+      <span>📊</span> Posição Atual
+    </button>
+    <button
+      class="tab-btn"
+      [class.active]="store.activeTab() === 'simulador'"
+      (click)="setTab('simulador')"
+      role="tab"
+    >
+      <span>🎯</span> Simulador de Venda
+    </button>
+    <button
+      class="tab-btn"
+      [class.active]="store.activeTab() === 'projecao'"
+      (click)="setTab('projecao')"
+      role="tab"
+    >
+      <span>📈</span> Projeção & Gráfico
+    </button>
+    <button
+      class="tab-btn"
+      [class.active]="store.activeTab() === 'sensibilidade'"
+      (click)="setTab('sensibilidade')"
+      role="tab"
+    >
+      <span>🗺️</span> Matriz de Cenários
+    </button>
+    <button
+      class="tab-btn"
+      [class.active]="store.activeTab() === 'premissas'"
+      (click)="setTab('premissas')"
+      role="tab"
+    >
+      <span>⚙️</span> Premissas & Custos
+    </button>
+  </nav>
+
+  <!-- Banner de Erro -->
+  @if (store.error()) {
+    <div class="error-banner">
+      <strong>Erro:</strong> {{ store.error() }}
+      <button class="btn btn-sm btn-secondary" style="margin-left: 10px;" (click)="store.carregar()">Tentar Novamente</button>
+    </div>
+  }
+
+  <!-- Loading State -->
+  @if (store.loading()) {
+    <div class="loading-bar">Carregando dados de Renda Fixa...</div>
+  }
+
+  <!-- Conteúdo da Aba Ativa -->
+  <main class="tab-content">
+    @switch (store.activeTab()) {
+      @case ('posicao') {
+        <app-posicao-peps></app-posicao-peps>
+      }
+      @case ('simulador') {
+        <app-simulador></app-simulador>
+      }
+      @case ('projecao') {
+        <app-projecao></app-projecao>
+      }
+      @case ('sensibilidade') {
+        <app-sensibilidade></app-sensibilidade>
+      }
+      @case ('premissas') {
+        <app-premissas></app-premissas>
+      }
+    }
+  </main>
+</div>

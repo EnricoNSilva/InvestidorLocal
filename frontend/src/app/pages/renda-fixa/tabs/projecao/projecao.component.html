@@ -1,0 +1,71 @@
+<div class="card">
+  <div class="card-header">
+    <div>
+      <h2>Evolução Patrimonial: Marcação a Mercado vs. Carrego Puro</h2>
+      <div class="desc">
+        Projeção do saldo da sua carteira em diferentes cenários de taxa ao longo dos anos.
+      </div>
+    </div>
+    <div class="btn-group-toggles">
+      <!-- Toggle Métrica: Líquido vs Bruto -->
+      <div class="btn-group">
+        <button
+          class="btn btn-sm"
+          [class.btn-primary]="store.projView().metric === 'liq'"
+          [class.btn-secondary]="store.projView().metric !== 'liq'"
+          (click)="setMetric('liq')"
+        >Saldo Líquido</button>
+        <button
+          class="btn btn-sm"
+          [class.btn-primary]="store.projView().metric === 'bruto'"
+          [class.btn-secondary]="store.projView().metric !== 'bruto'"
+          (click)="setMetric('bruto')"
+        >Saldo Bruto</button>
+      </div>
+
+      <!-- Toggle Base: Nominal vs Real -->
+      <div class="btn-group">
+        <button
+          class="btn btn-sm"
+          [class.btn-primary]="store.projView().base === 'nominal'"
+          [class.btn-secondary]="store.projView().base !== 'nominal'"
+          (click)="setBase('nominal')"
+        >Nominal</button>
+        <button
+          class="btn btn-sm"
+          [class.btn-primary]="store.projView().base === 'real'"
+          [class.btn-secondary]="store.projView().base !== 'real'"
+          (click)="setBase('real')"
+        >Real (Descontado IPCA)</button>
+      </div>
+    </div>
+  </div>
+
+  <app-projection-chart [data]="store.projecao()"></app-projection-chart>
+
+  <div class="callout legend-callout">
+    <strong>Leitura das 5 Curvas Projetadas:</strong>
+    <ul>
+      <li>
+        <span class="dot-legend dot-blue"></span>
+        <strong>Linha Azul (Cenário Alvo):</strong> valor estimado caso a taxa atinja IPCA + {{ store.sim().targetRatePct }}% configurada no simulador.
+      </li>
+      <li>
+        <span class="dot-legend dot-dashed"></span>
+        <strong>Linha Branca Tracejada (Carrego Puro):</strong> valor acumulado rendendo as taxas contratuais originais de cada compra (sem marcação a mercado).
+      </li>
+      <li>
+        <span class="dot-legend dot-purple"></span>
+        <strong>Linha Roxa Pontilhada (Benchmark 100% CDI):</strong> rendimento de referência aplicando o patrimônio de hoje a 100% do CDI ({{ store.premissas().cdiRatePct }}% a.a.).
+      </li>
+      <li>
+        <span class="dot-legend dot-green"></span>
+        <strong>Linha Verde (Queda 5%):</strong> valorização antecipada máxima proporcionada por uma queda forte dos juros futuros.
+      </li>
+      <li>
+        <span class="dot-legend dot-red"></span>
+        <strong>Linha Vermelha (Estresse 8%):</strong> efeito temporário de desvalorização patrimonial caso as taxas de juros do país subam.
+      </li>
+    </ul>
+  </div>
+</div>

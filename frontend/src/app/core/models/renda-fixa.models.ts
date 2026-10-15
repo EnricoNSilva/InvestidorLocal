@@ -1,4 +1,6 @@
 import { Ativo } from './investimento.models';
+import { toDayNum } from '../financial-engine/dates';
+import type { CustodyConfig, EngineLot } from '../financial-engine/types';
 
 export type Indexador = 'IPCA' | 'CDI' | 'SELIC' | 'PREFIXADO';
 
@@ -94,3 +96,105 @@ export interface MacroResponse {
   selic: SerieMacroRead;
   cdi?: SerieMacroRead | null;
 }
+
+export interface TaxaContratadaPatch {
+  taxa_contratada: number | string;
+}
+
+export interface DetalhesRendaFixaUpsert {
+  produto: ProdutoRendaFixa;
+  indexador: Indexador;
+  emissor?: string;
+  percentual_indexador?: number | null;
+  data_emissao?: string | null;
+  data_vencimento?: string | null;
+  ano_conversao?: number | null;
+  num_parcelas?: number | null;
+  dia_pagamento?: number | null;
+  isento_ir?: boolean;
+  cobra_custodia_b3?: boolean;
+  carencia_dias?: number | null;
+  codigo_mercado?: string | null;
+}
+
+export interface CotacaoTesouroItem {
+  symbol: string;
+  name: string;
+  indexer: string;
+  sellPrice: number;
+  sellRate: number;
+  baseDate?: string;
+}
+
+export interface CotacaoTesouroResponse {
+  data_referencia: string;
+  cotacoes: CotacaoTesouroItem[];
+}
+
+export interface Premissas {
+  selectedBond: string;
+  refDate: string;
+  refPrice: number;
+  refRate: number | string;
+  spread: number;
+  ipcaCal: number;
+  ipcaProj: number;
+  cdiRatePct: number;
+  custody: CustodyConfig;
+}
+
+export interface SimInputs {
+  simDN: number;
+  simYears: number;
+  targetRatePct: number;
+  convMonths: number;
+  spread: number;
+  qtyToSell: number | '';
+}
+
+export interface MercadoSnapshot {
+  tesouro: EnvelopeMercado<CotacaoTesouroResponse> | null;
+  macro: MacroResponse | null;
+}
+
+export interface ProjectionSeries {
+  labels: string[];
+  series: {
+    alvo: number[];
+    carrego: number[];
+    cdi: number[];
+    queda5: number[];
+    alta8: number[];
+  };
+}
+
+export interface AllocationSlice {
+  label: string;
+  value: number;
+  pct: number;
+}
+
+export function toEngineLot(l: LoteAbertoDto): EngineLot | null {
+  if (
+    l.taxa_contratada === null ||
+    l.taxa_contratada === undefined ||
+    l.taxa_contratada === '' ||
+    !l.custo_conhecido
+  ) {
+    return null;
+  }
+  return {
+    id: l.transacao_id,
+    date: l.data_compra,
+    dn: toDayNum(l.data_compra),
+    rate: Number(l.taxa_contratada),
+    price: Number(l.preco_unitario),
+    qty: Number(l.quantidade_aberta),
+  };
+}
+
+export function isLot(l: EngineLot | null): l is EngineLot {
+  return l !== null;
+}
+
+

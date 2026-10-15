@@ -1,0 +1,198 @@
+<div class="card">
+  <!-- 1. Calibração de Mercado Atual -->
+  <div class="card-header">
+    <div>
+      <h2>
+        <span>⚙️</span> Calibração de Mercado Atual
+        <app-info-tip key="taxaHoje"></app-info-tip>
+      </h2>
+      <div class="desc">Alinhe com os dados exibidos no site ou aplicativo oficial do Tesouro Direto.</div>
+    </div>
+  </div>
+
+  <div class="form-grid">
+    <!-- Seletor de Título e Sincronização -->
+    <div class="form-group full-width">
+      <label>Título Público de Referência</label>
+      <div class="sync-row">
+        <select
+          [ngModel]="store.premissas().selectedBond"
+          (ngModelChange)="onBondSelect($event)"
+          class="form-select"
+        >
+          @for (bond of availableBonds(); track bond.symbol) {
+            <option [value]="bond.symbol">
+              {{ bond.name }} (PU {{ bond.sellPrice }} · {{ bond.sellRate }}%)
+            </option>
+          }
+        </select>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          [disabled]="sincronizando()"
+          (click)="sincronizar()"
+        >
+          {{ sincronizando() ? '🔄 Sincronizando...' : '🔄 Sincronizar Mercado' }}
+        </button>
+      </div>
+
+      <!-- Badge de Status e Cache -->
+      <div class="sync-status-box">
+        @if (store.syncStatus()) {
+          <span class="status-text">{{ store.syncStatus() }}</span>
+        } @else {
+          <span class="status-hint">Consulte cotações ao vivo no GitHub Pages / BCB SGS.</span>
+        }
+
+        @if (store.mercadoTesouro(); as t) {
+          @if (t.stale) {
+            <span class="badge badge-warning">Snapshot Local (Stale)</span>
+          } @else if (t.cache_hit) {
+            <span class="badge badge-info">Dados de Cache (1h)</span>
+          } @else {
+            <span class="badge badge-success">Ao Vivo</span>
+          }
+        }
+      </div>
+    </div>
+
+    <!-- Data de Referência -->
+    <div class="form-group">
+      <label>Data de Referência (Hoje)</label>
+      <input
+        type="date"
+        class="form-input"
+        [ngModel]="store.premissas().refDate"
+        (ngModelChange)="store.patchPremissas({ refDate: $event })"
+      />
+    </div>
+
+    <!-- Preço Unitário de Resgate -->
+    <div class="form-group">
+      <label>PU de Resgate Atual (R$) <app-info-tip key="puResgate"></app-info-tip></label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-input"
+        [ngModel]="store.premissas().refPrice"
+        (ngModelChange)="store.patchPremissas({ refPrice: +$event })"
+      />
+    </div>
+
+    <!-- Taxa de Resgate Atual -->
+    <div class="form-group">
+      <label>Taxa de Resgate (IPCA + % a.a.)</label>
+      <input
+        type="number"
+        step="0.01"
+        placeholder="Auto-estimada (~6,55%)"
+        class="form-input"
+        [ngModel]="store.premissas().refRate"
+        (ngModelChange)="store.patchPremissas({ refRate: $event === '' ? '' : +$event })"
+      />
+    </div>
+
+    <!-- Spread Compra / Venda -->
+    <div class="form-group">
+      <label>Spread Compra/Venda (p.p.)</label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-input"
+        [ngModel]="store.premissas().spread"
+        (ngModelChange)="store.patchPremissas({ spread: +$event })"
+      />
+    </div>
+
+    <!-- IPCA da Calibração -->
+    <div class="form-group">
+      <label>IPCA Calibração (% a.a.)</label>
+      <input
+        type="number"
+        step="0.1"
+        class="form-input"
+        [ngModel]="store.premissas().ipcaCal"
+        (ngModelChange)="store.patchPremissas({ ipcaCal: +$event })"
+      />
+    </div>
+
+    <!-- Benchmark CDI Anual -->
+    <div class="form-group">
+      <label>Benchmark 100% CDI (% a.a.)</label>
+      <input
+        type="number"
+        step="0.1"
+        class="form-input"
+        [ngModel]="store.premissas().cdiRatePct"
+        (ngModelChange)="store.patchPremissas({ cdiRatePct: +$event })"
+      />
+    </div>
+  </div>
+
+  <!-- 2. Custódia B3 na Venda Antecipada -->
+  <div class="card-header section-divider">
+    <div>
+      <h2>
+        <span>🏛️</span> Taxa de Custódia B3 na Venda Antecipada
+        <app-info-tip key="custodiaB3"></app-info-tip>
+      </h2>
+      <div class="desc">Configuração da cobrança regressiva pro rata die aplicada pela B3.</div>
+    </div>
+  </div>
+
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Modelo de Aplicação da Custódia</label>
+      <select
+        class="form-select"
+        [ngModel]="store.premissas().custody.custMode || 'single'"
+        (ngModelChange)="updateCustMode($event)"
+      >
+        <option value="single">Alíquota da faixa do prazo total (Padrão)</option>
+        <option value="marginal">Escalonada por faixa marginal</option>
+        <option value="none">Isenta / Não descontar</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Até 10 anos (% a.a.)</label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-input"
+        [ngModel]="store.premissas().custody.cust1 ?? 0.50"
+        (ngModelChange)="updateCustField('cust1', $event)"
+      />
+    </div>
+
+    <div class="form-group">
+      <label>De 10 a 20 anos (% a.a.)</label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-input"
+        [ngModel]="store.premissas().custody.cust2 ?? 0.20"
+        (ngModelChange)="updateCustField('cust2', $event)"
+      />
+    </div>
+
+    <div class="form-group">
+      <label>Acima de 20 anos (% a.a.)</label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-input"
+        [ngModel]="store.premissas().custody.cust3 ?? 0.10"
+        (ngModelChange)="updateCustField('cust3', $event)"
+      />
+    </div>
+  </div>
+
+  <!-- Metodologia NTN-B1 Callout -->
+  <div class="callout warning" style="margin-top: 24px;">
+    <strong>Metodologia do Título NTN-B1 (Tesouro RENDA+ 2065):</strong>
+    <p>1. O título amortiza em 240 parcelas mensais iguais entre 15/01/2065 e 15/12/2084.</p>
+    <p>2. Preço de Mercado: <code>PU = F(t) × Σ (1 + r)^(-du/252)</code>, onde <code>du</code> são dias úteis seguindo o calendário oficial de feriados nacionais da ANBIMA.</p>
+    <p>3. Imposto de Renda: Tabela Regressiva da Renda Fixa aplicada individualmente sobre o ganho de capital de cada lote (ordem PEPS).</p>
+  </div>
+</div>

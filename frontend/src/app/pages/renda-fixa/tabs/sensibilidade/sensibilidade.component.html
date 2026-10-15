@@ -1,0 +1,156 @@
+<div class="card">
+  <!-- 1. Matriz de Cenários (Heatmap) -->
+  <div class="card-header">
+    <div>
+      <h2>
+        <span>🗺️</span> Matriz de Estresse: Saldo Líquido na Venda
+        <app-info-tip key="saldoLiqProjetado"></app-info-tip>
+      </h2>
+      <div class="desc">
+        Linhas = Taxa Alvo na Venda | Colunas = Horizonte de Permanência. As cores indicam zonas de ganho (verde) e desvalorização (vermelho).
+      </div>
+    </div>
+  </div>
+
+  <div class="table-responsive-container">
+    <table class="data-table matrix-table">
+      <thead>
+        <tr>
+          <th>Taxa na Venda ↓ / Prazo →</th>
+          @for (h of horizons; track h) {
+            <th class="text-center">{{ h === 0 ? 'Hoje' : h + ' ano(s)' }}</th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Linha de Carrego Puro -->
+        <tr>
+          <td>
+            <strong>Carrego Puro (Líquido)</strong>
+            <app-info-tip key="carregoPuro"></app-info-tip>
+          </td>
+          @for (c of matrixData().carryCells; track $index) {
+            <td>
+              <div class="matrix-cell" [style.background]="c.bg">
+                <span class="v-liq">{{ fmtBRL(c.liqReal) }}</span>
+                <span class="v-pct pos">+{{ fmtPct(c.pctGain) }}</span>
+              </div>
+            </td>
+          }
+        </tr>
+
+        <!-- Linhas por Taxa Alvo -->
+        @for (row of matrixData().rows; track row.rate) {
+          <tr>
+            <td>
+              <strong>{{ row.rateLabel }}</strong>
+              @if (row.isCurrent) {
+                <span class="badge badge-neutral" style="margin-left: 6px;">Atual</span>
+              }
+            </td>
+            @for (cell of row.cells; track $index) {
+              <td>
+                <div class="matrix-cell" [style.background]="cell.bg">
+                  <span class="v-liq">{{ fmtBRL(cell.liqReal) }}</span>
+                  <span class="v-pct" [ngClass]="cell.isPositive ? 'pos' : 'neg'">
+                    {{ cell.isPositive ? '+' : '' }}{{ fmtPct(cell.pctGain) }}
+                  </span>
+                </div>
+              </td>
+            }
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 2. Tabela de Sensibilidade Imediata (Choques na Taxa) -->
+  <div class="card-header section-divider">
+    <div>
+      <h2>
+        <span>⚡</span> Sensibilidade Imediata a Choques de Juros (Hoje)
+        <app-info-tip key="choqueTaxa"></app-info-tip>
+      </h2>
+      <div class="desc">Impacto instantâneo de uma variação imediata na curva de juros sobre o seu patrimônio.</div>
+    </div>
+  </div>
+
+  <div class="table-responsive-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Choque na Taxa</th>
+          @for (r of shockRows(); track r.shock) {
+            <th class="text-center">{{ r.shockLabel }}</th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Taxa Resultante -->
+        <tr>
+          <td><strong>Taxa Resultante</strong></td>
+          @for (r of shockRows(); track r.shock) {
+            <td class="text-center">IPCA + {{ fmtPct(r.newRate, 2) }}</td>
+          }
+        </tr>
+
+        <!-- Novo PU -->
+        <tr>
+          <td><strong>Novo PU de Resgate</strong> <app-info-tip key="puResgate"></app-info-tip></td>
+          @for (r of shockRows(); track r.shock) {
+            <td class="text-center">{{ fmtBRL(r.newPU) }}</td>
+          }
+        </tr>
+
+        <!-- Variação % PU -->
+        <tr>
+          <td><strong>Variação % no Preço (PU)</strong> <app-info-tip key="duration"></app-info-tip></td>
+          @for (r of shockRows(); track r.shock) {
+            <td class="text-center" [ngClass]="r.puVarPct >= 0 ? 'pos' : 'neg'" style="font-weight:600">
+              {{ r.puVarPct >= 0 ? '+' : '' }}{{ fmtPct(r.puVarPct, 2) }}
+            </td>
+          }
+        </tr>
+
+        <!-- Variação Saldo Bruto -->
+        <tr>
+          <td><strong>Variação Saldo Bruto (R$)</strong></td>
+          @for (r of shockRows(); track r.shock) {
+            <td class="text-center" [ngClass]="r.brutoDiff >= 0 ? 'pos' : 'neg'">
+              {{ r.brutoDiff >= 0 ? '+' : '' }}{{ fmtBRL(r.brutoDiff) }}
+            </td>
+          }
+        </tr>
+
+        <!-- Rentabilidade Líquida Total -->
+        <tr>
+          <td><strong>Rentabilidade Líquida Total (%)</strong> <app-info-tip key="rentabilidadeLiq"></app-info-tip></td>
+          @for (r of shockRows(); track r.shock) {
+            <td class="text-center" [ngClass]="r.shockReturnPct >= 0 ? 'pos' : 'neg'" style="font-weight:700">
+              {{ r.shockReturnPct >= 0 ? '+' : '' }}{{ fmtPct(r.shockReturnPct, 2) }}
+            </td>
+          }
+        </tr>
+
+        <!-- Impacto Rentabilidade p.p. -->
+        <tr>
+          <td><strong>Impacto na Rentabilidade (p.p.)</strong></td>
+          @for (r of shockRows(); track r.shock) {
+            <td class="text-center" [ngClass]="r.returnDiffPP >= 0 ? 'pos' : 'neg'">
+              {{ r.returnDiffPP >= 0 ? '+' : '' }}{{ fmtNum(r.returnDiffPP, 2) }} p.p.
+            </td>
+          }
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 3. Duration Modificada Callout -->
+  <div class="callout duration-callout">
+    <strong>Duration Modificada Estimada: ≈ {{ fmtNum(store.duration(), 1) }} anos.</strong>
+    <span>
+      Cada variação de 0,10 p.p. (10 bps) na taxa de mercado movimenta aproximadamente <strong>{{ fmtNum(store.duration() * 0.1, 1) }}%</strong> do seu valor de mercado.
+    </span>
+    <app-info-tip key="duration"></app-info-tip>
+  </div>
+</div>

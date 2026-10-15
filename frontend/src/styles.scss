@@ -1,4 +1,4 @@
-﻿/* Paleta Dark Mode Inspirada no Investidor 10 */
+/* Paleta Dark Mode Inspirada no Investidor 10 */
 :root {
   --bg-main: #0d1117;
   --bg-card: #161b22;
@@ -17,6 +17,29 @@
   --badge-fii: #8957e5;
   --badge-cripto: #d29922;
   --badge-rf: #238636;
+
+  /* Design Tokens Renda Fixa & Gráficos */
+  --bg-surface: #111726;
+  --bg-elevated: #182238;
+  --bg-base: #090d16;
+  --bg-input: #0e1524;
+  --border-subtle: #1e2c47;
+  --border-muted: #2a3b5c;
+  --border-active: #3b82f6;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --brand-primary: #3b82f6;
+  --brand-hover: #2563eb;
+  --brand-glow: rgba(59, 130, 246, 0.25);
+  --semantic-success: #10b981;
+  --semantic-success-bg: rgba(16, 185, 129, 0.12);
+  --semantic-danger: #ef4444;
+  --semantic-danger-bg: rgba(239, 68, 68, 0.12);
+  --semantic-warning: #f59e0b;
+  --semantic-warning-bg: rgba(245, 158, 11, 0.12);
+  --semantic-info: #06b6d4;
+  --semantic-info-bg: rgba(6, 182, 212, 0.12);
+  --chart-grid: #1e2c47;
 }
 
 * {

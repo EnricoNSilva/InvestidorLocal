@@ -1,0 +1,260 @@
+<!-- Posição Atual: KPIs Financeiros -->
+<div class="kpi-grid">
+  <app-kpi-card
+    label="Total Investido"
+    [value]="fmtBRL(store.vendaHoje().custo)"
+    [sub]="fmtNum(store.vendaHoje().q) + ' títulos · PM ' + fmtBRL(store.vendaHoje().q > 0 ? store.vendaHoje().custo / store.vendaHoje().q : 0)"
+    tooltipKey="totalInvestido"
+  ></app-kpi-card>
+
+  <app-kpi-card
+    label="Saldo Bruto Atual"
+    [value]="fmtBRL(store.vendaHoje().bruto)"
+    [sub]="'PU de Resgate ' + fmtBRL(store.calib().pNow)"
+    tooltipKey="saldoBruto"
+  ></app-kpi-card>
+
+  <app-kpi-card
+    label="Taxa Média de Compra"
+    [value]="'IPCA + ' + fmtPct(store.posAvgRate() / 100)"
+    [sub]="'Mercado hoje: IPCA + ' + fmtPct(store.calib().rNow)"
+    tooltipKey="taxaMediaCompra"
+  ></app-kpi-card>
+
+  <app-kpi-card
+    label="Líquido Real (pós Custódia)"
+    [value]="fmtBRL(store.vendaHoje().liqReal)"
+    [sub]="'Lucro Líquido: ' + (store.posLucroReal() >= 0 ? '+' : '') + fmtBRL(store.posLucroReal()) + ' (após IR e B3)'"
+    [valClass]="store.posLucroReal() >= 0 ? 'pos' : 'neg'"
+    tooltipKey="saldoLiqReal"
+  ></app-kpi-card>
+
+  <app-kpi-card
+    label="Rentabilidade Líquida %"
+    [value]="(store.posReturnPctReal() >= 0 ? '+' : '') + fmtPct(store.posReturnPctReal())"
+    [sub]="'TIR ≈ ' + fmtPct(store.posTIR()) + ' a.a. · Real: ' + fmtPct(store.posRealReturnPct())"
+    [valClass]="store.posReturnPctReal() >= 0 ? 'pos' : 'neg'"
+    tooltipKey="rentabilidadeLiq"
+  ></app-kpi-card>
+
+  <app-kpi-card
+    label="IR Total Retido"
+    [value]="fmtBRL(store.vendaHoje().bruto - store.vendaHoje().liqApp)"
+    [sub]="'Custódia B3: ' + fmtBRL(store.vendaHoje().cust)"
+    tooltipKey="irRetido"
+  ></app-kpi-card>
+</div>
+
+<!-- Comparativo de Conferência App Tesouro vs Líquido Real -->
+<div class="card compare-box">
+  <div class="card-header">
+    <div>
+      <h2>
+        <span>🏛️</span> Conferência com o App Oficial do Tesouro Direto
+        <app-info-tip key="saldoLiqApp"></app-info-tip>
+      </h2>
+      <div class="desc">
+        Entenda a diferença centavo por centavo entre o valor do aplicativo e o que efetivamente cai na sua conta.
+      </div>
+    </div>
+  </div>
+  <div class="compare-grid">
+    <div class="compare-item official">
+      <div class="compare-title">Extrato do App do Tesouro (Líquido Oficial)</div>
+      <div class="compare-val">{{ fmtBRL(store.vendaHoje().liqApp) }}</div>
+      <div class="compare-desc">
+        O Tesouro calcula o imposto de renda regressivo sobre o ganho bruto <strong>sem deduzir</strong> a taxa de custódia da B3.
+      </div>
+    </div>
+    <div class="compare-divider">vs</div>
+    <div class="compare-item real">
+      <div class="compare-title">Valor Efetivo Creditado na Conta (Líquido Real)</div>
+      <div class="compare-val pos">{{ fmtBRL(store.vendaHoje().liqReal) }}</div>
+      <div class="compare-desc">
+        Na liquidação, a B3 debita a custódia acumulada ({{ fmtBRL(store.vendaHoje().cust) }}) e <strong>abate esse custo da base do IR</strong>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Gráfico de Alocação e Diversificação -->
+<div class="card">
+  <div class="card-header">
+    <div>
+      <h2>Alocação & Diversificação da Carteira</h2>
+      <div class="desc">Distribuição percentual do patrimônio líquido acumulado.</div>
+    </div>
+    <div class="btn-group">
+      <button
+        class="btn btn-sm"
+        [class.btn-primary]="allocationMode() === 'indexador'"
+        [class.btn-secondary]="allocationMode() !== 'indexador'"
+        (click)="setAllocationMode('indexador')"
+      >Por Indexador</button>
+      <button
+        class="btn btn-sm"
+        [class.btn-primary]="allocationMode() === 'lote'"
+        [class.btn-secondary]="allocationMode() !== 'lote'"
+        (click)="setAllocationMode('lote')"
+      >Por Lote</button>
+    </div>
+  </div>
+  <app-allocation-chart
+    [slices]="allocationMode() === 'indexador' ? store.alocacaoIndexador() : store.alocacaoLotes()"
+    [mode]="allocationMode()"
+  ></app-allocation-chart>
+</div>
+
+<!-- Alerta de Lotes Pendentes de Taxa Contratada -->
+@if (salvarErro()) {
+  <div class="callout warning" style="border-left-color: var(--semantic-danger, #ef4444); background: rgba(239, 68, 68, 0.1);">
+    <strong style="color: var(--semantic-danger, #ef4444);">Erro: </strong>{{ salvarErro() }}
+  </div>
+}
+
+@if (store.pendencias().length > 0) {
+  <div class="callout warning pending-banner">
+    <div class="banner-title">
+      <strong>⚠️ Lotes Pendentes de Taxa Contratada ({{ store.pendencias().length }})</strong>
+    </div>
+    <div class="banner-body">
+      Os extratos de negociação B3 não informam a taxa contratada pactuada no momento da compra.
+      Informe a taxa contratada dos lotes destacados abaixo para que eles entrem na simulação PEPS de marcação a mercado.
+    </div>
+  </div>
+}
+
+<!-- Tabela de Lotes PEPS -->
+<div class="card">
+  <div class="card-header">
+    <div>
+      <h2>
+        Lotes Comprados & Posição no Tesouro
+        <app-info-tip key="peps"></app-info-tip>
+      </h2>
+      <div class="desc">
+        Conferência centavo por centavo com seu extrato oficial. A venda segue ordem PEPS (Primeiro que Entra, Primeiro que Sai).
+      </div>
+    </div>
+  </div>
+
+  <div class="table-responsive-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data Compra</th>
+          <th>Taxa Compra</th>
+          <th>PU Compra</th>
+          <th>Qtd.</th>
+          <th>Valor Investido</th>
+          <th>Dias</th>
+          <th>Valor Bruto</th>
+          <th>Custódia B3</th>
+          <th>IR Retido</th>
+          <th>Líquido (App)</th>
+          <th>Rentab. %</th>
+          <th>Status / Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Lotes Calculados Ativos -->
+        @for (part of store.vendaHoje().parts; track part.lot.id) {
+          @let lucroLote = part.liqApp - part.custo;
+          @let pctLote = part.custo > 0 ? (lucroLote / part.custo) : 0;
+          @let sched = getIRSchedule(part.days);
+          <tr>
+            <td>{{ formatDateBRL(part.lot.date) }}</td>
+            <td><strong>IPCA + {{ fmtPctDirect(part.lot.rate) }}</strong></td>
+            <td>{{ fmtBRL(part.lot.price) }}</td>
+            <td>{{ fmtNum(part.q) }}</td>
+            <td>{{ fmtBRL(part.custo) }}</td>
+            <td>{{ part.days }} d</td>
+            <td>{{ fmtBRL(part.bruto) }}</td>
+            <td>{{ fmtBRL(part.cust) }}</td>
+            <td>
+              <div>{{ fmtBRL(part.bruto - part.liqApp) }}</div>
+              <div class="badge-row">
+                <span class="badge badge-neutral">{{ fmtPct(part.irAliq, 1) }}</span>
+                @if (sched.nextRate) {
+                  <span class="badge badge-info" [title]="sched.daysRemaining + ' dias para cair para ' + fmtPct(sched.nextRate, 1)">
+                    ⏳ {{ sched.statusText }}
+                  </span>
+                } @else {
+                  <span class="badge badge-success">⭐ Mín. 15%</span>
+                }
+              </div>
+            </td>
+            <td class="pos" style="font-weight:700">{{ fmtBRL(part.liqApp) }}</td>
+            <td [ngClass]="pctLote >= 0 ? 'pos' : 'neg'" style="font-weight:600">
+              {{ pctLote >= 0 ? '+' : '' }}{{ fmtPct(pctLote) }}
+            </td>
+            <td>
+              <span class="badge badge-success">Ativo PEPS</span>
+            </td>
+          </tr>
+        }
+
+        <!-- Lotes Pendentes (Sem Taxa Contratada) -->
+        @for (lote of store.posicao()?.lotes; track lote.transacao_id) {
+          @if (lote.taxa_contratada === null || lote.taxa_contratada === undefined || lote.taxa_contratada === '') {
+            <tr class="pending-row">
+              <td>{{ formatDateBRL(lote.data_compra) }}</td>
+              <td colspan="2">
+                <div class="inline-edit">
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Ex: 6.99"
+                    [(ngModel)]="taxaDrafts[lote.transacao_id]"
+                    class="taxa-input"
+                  />
+                  <span class="taxa-suffix">% a.a.</span>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    [disabled]="salvandoId() === lote.transacao_id"
+                    (click)="salvarTaxa(lote)"
+                  >
+                    {{ salvandoId() === lote.transacao_id ? 'Salvando...' : 'Salvar Taxa' }}
+                  </button>
+                </div>
+              </td>
+              <td>{{ fmtNum(lote.quantidade_aberta) }}</td>
+              <td>{{ fmtBRL(lote.custo_aberto_brl) }}</td>
+              <td>--</td>
+              <td>--</td>
+              <td>--</td>
+              <td>--</td>
+              <td>--</td>
+              <td>--</td>
+              <td>
+                <span class="badge badge-danger">Taxa Pendente</span>
+              </td>
+            </tr>
+          }
+        }
+
+        <!-- Linha Consolidada de Totais -->
+        @if (store.vendaHoje().q > 0) {
+          @let totalLucro = store.vendaHoje().liqApp - store.vendaHoje().custo;
+          @let totalPct = store.vendaHoje().custo > 0 ? (totalLucro / store.vendaHoje().custo) : 0;
+          <tr class="total-row">
+            <td><strong>Total</strong></td>
+            <td><strong>IPCA + {{ fmtPct(store.posAvgRate() / 100) }}</strong></td>
+            <td>{{ fmtBRL(store.vendaHoje().q > 0 ? store.vendaHoje().custo / store.vendaHoje().q : 0) }}</td>
+            <td><strong>{{ fmtNum(store.vendaHoje().q) }}</strong></td>
+            <td><strong>{{ fmtBRL(store.vendaHoje().custo) }}</strong></td>
+            <td>--</td>
+            <td><strong>{{ fmtBRL(store.vendaHoje().bruto) }}</strong></td>
+            <td><strong>{{ fmtBRL(store.vendaHoje().cust) }}</strong></td>
+            <td><strong>{{ fmtBRL(store.vendaHoje().bruto - store.vendaHoje().liqApp) }}</strong></td>
+            <td class="pos" style="font-size:14px;font-weight:700">{{ fmtBRL(store.vendaHoje().liqApp) }}</td>
+            <td [ngClass]="totalPct >= 0 ? 'pos' : 'neg'" style="font-size:14px;font-weight:700">
+              {{ totalPct >= 0 ? '+' : '' }}{{ fmtPct(totalPct) }}
+            </td>
+            <td>--</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

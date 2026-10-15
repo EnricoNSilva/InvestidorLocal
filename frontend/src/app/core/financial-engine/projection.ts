@@ -21,6 +21,7 @@ export interface ProjectionCurvesConfig {
   targetRatePct?: number;
   cdiRatePct?: number;
   posLiqToday?: number;
+  maxSimDate?: DayNum;
 }
 
 export interface ProjectionCurvesResult {
@@ -48,6 +49,7 @@ export function buildProjectionCurves(cfg: ProjectionCurvesConfig): ProjectionCu
     ipca = 4.5,
     targetRatePct = 6.55,
     cdiRatePct = 10.75,
+    maxSimDate = MAX_SIM_DATE,
   } = cfg;
 
   const clampedHorizon = Math.min(Math.max(Number(horizonYears) || 10, 3), 35);
@@ -56,7 +58,7 @@ export function buildProjectionCurves(cfg: ProjectionCurvesConfig): ProjectionCu
   const yearSteps: number[] = [];
 
   for (let y = 0; y <= clampedHorizon; y += 0.5) {
-    const d = Math.min(addYearsDN(refDN, y), MAX_SIM_DATE);
+    const d = Math.min(addYearsDN(refDN, y), maxSimDate);
     points.push(d);
     yearSteps.push(y);
     labels.push(y === 0 ? 'Hoje' : `${y}a`);
