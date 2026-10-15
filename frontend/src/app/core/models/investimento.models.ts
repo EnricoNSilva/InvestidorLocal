@@ -1,6 +1,14 @@
 export type TipoAtivo = 'Acao' | 'FII' | 'Cripto' | 'RendaFixa';
 
-export type TipoOperacao = 'BUY' | 'SELL' | 'TRANSFERENCIA_ENTRADA';
+export type TipoOperacao =
+  | 'BUY'
+  | 'SELL'
+  | 'TRANSFERENCIA_ENTRADA'
+  | 'BONIFICACAO'
+  | 'DIREITO_SUBSCRICAO'
+  | 'DIREITO_SUBSCRICAO_EXPIRADO'
+  | 'AMORTIZACAO'
+  | 'JUROS_CUPOM';
 
 export interface Ativo {
   id: number;
@@ -41,6 +49,7 @@ export interface Transacao {
   moeda: string;
   moeda_taxa?: string | null;
   ptax_utilizada?: string | number | null;
+  taxa_contratada?: string | number | null;
   created_at?: string;
 }
 
