@@ -1,18 +1,22 @@
 import io
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from decimal import Decimal
 from typing import BinaryIO, Dict, List, Optional, Union
 import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.models.ativo import Ativo
-from app.models.enums import TipoAtivo, TipoOperacao
+from app.models.enums import TipoAtivo, TipoOperacao, ProdutoRendaFixa
+from app.models.renda_fixa import DetalhesRendaFixa
 from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
 from app.services.portfolio import processar_transacao, recalcular_posicoes_carteira
 from app.services.ingestion.parser_b3 import inferir_tipo_ativo, to_decimal
+from app.services.ingestion.classificador_renda_fixa import classificar_renda_fixa
+
+ANO_E_VENCIMENTO_MOVIMENTACAO = False
 
 def normalize_col(col: str) -> str:
     """Remove acentuações e padroniza string para comparação robusta."""
@@ -25,14 +29,15 @@ def processar_planilha_movimentacao_b3(
 ) -> Dict[str, Union[List[Transacao], List[str]]]:
     """
     Lê a planilha de 'Movimentação' da B3 via Pandas.
-    Filtra rigorosamente para considerar APENAS:
-      1. 'Transferência' / 'Cessão' / 'Doação': saldo herdado inicial (custo zero se não informado).
-      2. 'Bonificação em Ativos': incrementa quantidade com custo zero.
-      3. 'Direito de Subscrição': incrementa quantidade com custo zero.
-      4. 'Direitos de Subscrição - Não Exercido': subtrai quantidade com custo zero.
+    Filtra rigorosamente para considerar:
+      1. Renda Fixa: AMORTIZACAO, JUROS_CUPOM, SELL (vencimento/resgate), TRANSFERENCIA_ENTRADA.
+      2. 'Transferência' / 'Cessão' / 'Doação': saldo herdado inicial (custo zero se não informado).
+      3. 'Bonificação em Ativos': incrementa quantidade com custo zero.
+      4. 'Direito de Subscrição': incrementa quantidade com custo zero.
+      5. 'Direitos de Subscrição - Não Exercido': subtrai quantidade com custo zero.
     IGNORA expressamente:
       - 'Transferência - Liquidação' (liquidações de pregão que vêm da planilha de Negociação).
-      - Proventos financeiros em dinheiro (dividendos, JCP, rendimentos).
+      - Proventos financeiros em dinheiro para não-RF (dividendos, JCP, rendimentos).
     Ao final, executa recalcular_posicoes_carteira() para consolidação integral e precisa.
     """
     if isinstance(file_content, bytes):
@@ -95,71 +100,157 @@ def processar_planilha_movimentacao_b3(
         if "liquida" in norm_mov:
             continue
 
-        # 2. Ignora proventos financeiros em dinheiro
-        if any(p in norm_mov for p in ["dividendo", "juros sobre", "rendimento", "amortizacao"]):
-            continue
+        raw_produto = str(row.get(col_map.get("ticker", ""), "")).strip()
+        info_rf = classificar_renda_fixa(raw_produto, ano_e_vencimento=ANO_E_VENCIMENTO_MOVIMENTACAO)
 
-        # 3. Classifica o tipo de evento
-        sentido_str = normalize_col(row.get(col_map.get("entrada_saida", ""), ""))
-        eh_debito = "debito" in sentido_str or "saida" in sentido_str
+        # Trata Renda Fixa
+        if info_rf:
+            if "amortizacao" in norm_mov:
+                tipo_operacao = TipoOperacao.AMORTIZACAO
+            elif "juros" in norm_mov or "rendimento" in norm_mov:
+                tipo_operacao = TipoOperacao.JUROS_CUPOM
+            elif "vencimento" in norm_mov or "resgate" in norm_mov:
+                tipo_operacao = TipoOperacao.SELL
+            elif any(t in norm_mov for t in ["transferencia", "cessao", "doacao", "deposito", "custodia", "aplicacao", "compra"]):
+                sentido_str = normalize_col(row.get(col_map.get("entrada_saida", ""), ""))
+                eh_debito = "debito" in sentido_str or "saida" in sentido_str
+                if eh_debito:
+                    continue
+                tipo_operacao = TipoOperacao.TRANSFERENCIA_ENTRADA
+            else:
+                continue
 
-        if "nao exercido" in norm_mov:
-            tipo_operacao = TipoOperacao.DIREITO_SUBSCRICAO_EXPIRADO
-            preco_unitario = Decimal("0.0")
-        elif "bonifica" in norm_mov:
-            if eh_debito:
-                continue
-            tipo_operacao = TipoOperacao.BONIFICACAO
-            preco_unitario = Decimal("0.0")
-        elif "direito" in norm_mov or "subscri" in norm_mov:
-            if eh_debito:
-                continue
-            tipo_operacao = TipoOperacao.DIREITO_SUBSCRICAO
-            preco_unitario = Decimal("0.0")
-        elif any(t in norm_mov for t in ["transferencia", "cessao", "doacao", "deposito", "custodia"]):
-            if eh_debito:
-                continue
-            tipo_operacao = TipoOperacao.TRANSFERENCIA_ENTRADA
-            # Tenta ler preço caso explicitado, senão custo zero (sem fallback de R$ 1.0)
-            preco_unitario = Decimal("0.0")
-            if "preco" in col_map and pd.notna(row[col_map["preco"]]):
+            q_dec = to_decimal(row[col_map["quantidade"]])
+            v_dec = to_decimal(row[col_map["valor_total"]]) if "valor_total" in col_map and pd.notna(row[col_map["valor_total"]]) else Decimal("0.0")
+            if v_dec == Decimal("0.0") and "preco" in col_map and pd.notna(row[col_map["preco"]]):
                 p_dec = to_decimal(row[col_map["preco"]])
-                if p_dec > Decimal("0.0"):
-                    preco_unitario = p_dec
-            if preco_unitario <= Decimal("0.0") and "valor_total" in col_map and pd.notna(row[col_map["valor_total"]]):
-                v_dec = to_decimal(row[col_map["valor_total"]])
-                q_dec = to_decimal(row[col_map["quantidade"]])
-                if v_dec > Decimal("0.0") and q_dec > Decimal("0.0"):
-                    preco_unitario = v_dec / q_dec
+                v_dec = q_dec * p_dec
+
+            if tipo_operacao in (TipoOperacao.AMORTIZACAO, TipoOperacao.JUROS_CUPOM):
+                if q_dec > Decimal("0"):
+                    quantidade = q_dec
+                    preco_unitario = (v_dec / q_dec) if v_dec > Decimal("0") else Decimal("0.0")
+                else:
+                    quantidade = Decimal("1.0")
+                    preco_unitario = v_dec
+            elif tipo_operacao == TipoOperacao.SELL:
+                quantidade = q_dec
+                if "preco" in col_map and pd.notna(row[col_map["preco"]]) and to_decimal(row[col_map["preco"]]) > Decimal("0"):
+                    preco_unitario = to_decimal(row[col_map["preco"]])
+                elif quantidade > Decimal("0") and v_dec > Decimal("0"):
+                    preco_unitario = v_dec / quantidade
+                else:
+                    preco_unitario = Decimal("0.0")
+            else:  # TRANSFERENCIA_ENTRADA
+                quantidade = q_dec
+                if "preco" in col_map and pd.notna(row[col_map["preco"]]) and to_decimal(row[col_map["preco"]]) > Decimal("0"):
+                    preco_unitario = to_decimal(row[col_map["preco"]])
+                elif quantidade > Decimal("0") and v_dec > Decimal("0"):
+                    preco_unitario = v_dec / quantidade
+                else:
+                    preco_unitario = Decimal("0.0")
+
+            if quantidade <= Decimal("0"):
+                continue
+
+            ticker = info_rf.ticker
+            nome_ativo = info_rf.nome
+            tipo_ativo = TipoAtivo.RendaFixa
+
         else:
-            # Qualquer outro evento não afeta custódia de ativos
-            continue
+            # Não-RF: comportamento legado
+            # 2. Ignora proventos financeiros em dinheiro
+            if any(p in norm_mov for p in ["dividendo", "juros sobre", "rendimento", "amortizacao"]):
+                continue
 
-        ticker_raw = str(row[col_map["ticker"]]).strip().upper()
-        ticker_part = ticker_raw.split()[0].replace("-", "").strip() if " " in ticker_raw else ticker_raw
-        if len(ticker_part) == 6 and ticker_part.endswith("F") and ticker_part[:5].isalnum():
-            ticker = ticker_part[:-1]
-        else:
-            ticker = ticker_part
+            # 3. Classifica o tipo de evento
+            sentido_str = normalize_col(row.get(col_map.get("entrada_saida", ""), ""))
+            eh_debito = "debito" in sentido_str or "saida" in sentido_str
 
-        if not ticker or ticker == "NAN":
-            continue
+            if "nao exercido" in norm_mov:
+                tipo_operacao = TipoOperacao.DIREITO_SUBSCRICAO_EXPIRADO
+                preco_unitario = Decimal("0.0")
+            elif "bonifica" in norm_mov:
+                if eh_debito:
+                    continue
+                tipo_operacao = TipoOperacao.BONIFICACAO
+                preco_unitario = Decimal("0.0")
+            elif "direito" in norm_mov or "subscri" in norm_mov:
+                if eh_debito:
+                    continue
+                tipo_operacao = TipoOperacao.DIREITO_SUBSCRICAO
+                preco_unitario = Decimal("0.0")
+            elif any(t in norm_mov for t in ["transferencia", "cessao", "doacao", "deposito", "custodia"]):
+                if eh_debito:
+                    continue
+                tipo_operacao = TipoOperacao.TRANSFERENCIA_ENTRADA
+                preco_unitario = Decimal("0.0")
+                if "preco" in col_map and pd.notna(row[col_map["preco"]]):
+                    p_dec = to_decimal(row[col_map["preco"]])
+                    if p_dec > Decimal("0.0"):
+                        preco_unitario = p_dec
+                if preco_unitario <= Decimal("0.0") and "valor_total" in col_map and pd.notna(row[col_map["valor_total"]]):
+                    v_dec = to_decimal(row[col_map["valor_total"]])
+                    q_dec = to_decimal(row[col_map["quantidade"]])
+                    if v_dec > Decimal("0.0") and q_dec > Decimal("0.0"):
+                        preco_unitario = v_dec / q_dec
+            else:
+                continue
 
-        quantidade = to_decimal(row[col_map["quantidade"]])
-        if quantidade <= Decimal("0"):
-            continue
+            ticker_raw = str(row[col_map["ticker"]]).strip().upper()
+            ticker_part = ticker_raw.split()[0].replace("-", "").strip() if " " in ticker_raw else ticker_raw
+            if len(ticker_part) == 6 and ticker_part.endswith("F") and ticker_part[:5].isalnum():
+                ticker = ticker_part[:-1]
+            else:
+                ticker = ticker_part
+
+            if not ticker or ticker == "NAN":
+                continue
+
+            quantidade = to_decimal(row[col_map["quantidade"]])
+            if quantidade <= Decimal("0"):
+                continue
+
+            nome_ativo = f"Ativo B3 {ticker}"
+            tipo_ativo = inferir_tipo_ativo(ticker)
 
         # Garante a existência do ativo
         ativo = db.query(Ativo).filter(Ativo.ticker == ticker).first()
         if not ativo:
-            tipo_ativo = inferir_tipo_ativo(ticker)
             ativo = Ativo(
                 ticker=ticker,
-                nome=f"Ativo B3 {ticker}",
+                nome=nome_ativo,
                 tipo=tipo_ativo,
-                setor=None
+                setor="Tesouro Direto" if info_rf and info_rf.produto.value.startswith("TESOURO_") else None
             )
             db.add(ativo)
+            db.flush()
+
+        if info_rf and not ativo.detalhes_rf:
+            venc_date = info_rf.data_vencimento
+            if not venc_date and info_rf.ano_vencimento:
+                if info_rf.produto in (ProdutoRendaFixa.TESOURO_RENDA_MAIS, ProdutoRendaFixa.TESOURO_EDUCA_MAIS):
+                    venc_date = date(info_rf.ano_vencimento, 12, 15)
+                else:
+                    venc_date = date(info_rf.ano_vencimento, 1, 1)
+
+            dia_pgto = 15 if info_rf.produto in (ProdutoRendaFixa.TESOURO_RENDA_MAIS, ProdutoRendaFixa.TESOURO_EDUCA_MAIS) else None
+            emissor_final = info_rf.emissor or ("Tesouro Nacional" if info_rf.produto.value.startswith("TESOURO_") else "Emissor")
+
+            detalhes = DetalhesRendaFixa(
+                ativo_id=ativo.id,
+                produto=info_rf.produto,
+                indexador=info_rf.indexador,
+                emissor=emissor_final,
+                data_vencimento=venc_date,
+                ano_conversao=info_rf.ano_conversao,
+                num_parcelas=info_rf.num_parcelas,
+                dia_pagamento=dia_pgto,
+                isento_ir=info_rf.produto in (ProdutoRendaFixa.LCI, ProdutoRendaFixa.LCA),
+                cobra_custodia_b3=info_rf.produto.value.startswith("TESOURO_"),
+                codigo_mercado=info_rf.codigo_mercado,
+            )
+            db.add(detalhes)
             db.flush()
 
         data_hora = row["_data_dt"]
@@ -178,7 +269,8 @@ def processar_planilha_movimentacao_b3(
             taxas=Decimal("0.0"),
             moeda="BRL",
             moeda_taxa="BRL",
-            ptax_utilizada=None
+            ptax_utilizada=None,
+            taxa_contratada=None,
         )
 
         tx = processar_transacao(db=db, transacao_in=transacao_in)

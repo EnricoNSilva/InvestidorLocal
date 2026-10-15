@@ -1,17 +1,28 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.session import engine, SessionLocal
 from app.db.base import Base
+from app.db.migrations import aplicar_migracoes_defensivas
 from app.services.portfolio import obter_ou_criar_carteira_padrao
-from app.api.v1.endpoints import health, ativos, transacoes, carteira, importacao
+from app.api.v1.endpoints import health, ativos, transacoes, carteira, importacao, renda_fixa
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Garante a criação de todas as tabelas no banco de dados SQLite
     Base.metadata.create_all(bind=engine)
-    
+
+    # Migração defensiva de colunas (ex: taxa_contratada)
+    db_path = None
+    if engine.url.database and engine.url.database != ":memory:":
+        try:
+            db_path = Path(engine.url.database)
+        except Exception:
+            pass
+    aplicar_migracoes_defensivas(engine, db_path)
+
     # Migração defensiva de índices em bancos SQLite já existentes
     with engine.connect() as conn:
         conn.exec_driver_sql("DROP INDEX IF EXISTS ix_posicoes_consolidadas_ativo_id")
@@ -52,6 +63,7 @@ app.include_router(ativos.router, prefix=f"{settings.API_V1_STR}/ativos", tags=[
 app.include_router(transacoes.router, prefix=f"{settings.API_V1_STR}/transacoes", tags=["Transações"])
 app.include_router(carteira.router, prefix=f"{settings.API_V1_STR}/posicoes", tags=["Carteira / Posições"])
 app.include_router(importacao.router, prefix=f"{settings.API_V1_STR}/importacao", tags=["Importação de Planilhas"])
+app.include_router(renda_fixa.router, prefix=f"{settings.API_V1_STR}/renda-fixa", tags=["Renda Fixa"])
 
 @app.get("/", summary="Root status")
 def root():

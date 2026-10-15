@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Adiciona o diretório backend ao sys.path para importações relativas
 BASE_DIR = Path(__file__).resolve().parent
@@ -20,6 +20,16 @@ def init_database():
     # 1. Cria todas as tabelas mapeadas
     print("\n[1/3] Criando tabelas no banco de dados...")
     Base.metadata.create_all(bind=engine)
+    from app.db.migrations import aplicar_migracoes_defensivas
+    db_path = None
+    if engine.url.database and engine.url.database != ":memory:":
+        try:
+            db_path = Path(engine.url.database)
+        except Exception:
+            pass
+    aplicadas = aplicar_migracoes_defensivas(engine, db_path)
+    if aplicadas:
+        print(f"  Migrações defensivas aplicadas: {aplicadas}")
     print(" Tabelas criadas com sucesso:")
     for table_name in Base.metadata.tables.keys():
         print(f"  - {table_name}")
@@ -45,14 +55,15 @@ def init_database():
             # Cria transação de teste com alta precisão decimal
             transacao = Transacao(
                 ativo_id=ativo.id,
-                data_hora=datetime.utcnow(),
+                data_hora=datetime.now(timezone.utc),
                 tipo_operacao=TipoOperacao.BUY,
                 quantidade=Decimal("0.04561234"),
                 preco_unitario=Decimal("350000.50123456"),
                 taxas=Decimal("15.25000000"),
                 moeda="BRL",
                 moeda_taxa="BRL",
-                ptax_utilizada=None
+                ptax_utilizada=None,
+                taxa_contratada=None,
             )
             db.add(transacao)
 
@@ -69,6 +80,40 @@ def init_database():
             print("  Transacao e PosicaoConsolidada de teste inseridas com sucesso.")
         else:
             print(f"  Ativo '{ticker_teste}' ja existe no banco de dados.")
+
+        # Seed opcional e idempotente para TD-RENDA+-2065
+        from datetime import date
+        from app.models.enums import Indexador, ProdutoRendaFixa
+        from app.models.renda_fixa import DetalhesRendaFixa
+        ticker_rf = "TD-RENDA+-2065"
+        ativo_rf = db.query(Ativo).filter(Ativo.ticker == ticker_rf).first()
+        if not ativo_rf:
+            ativo_rf = Ativo(
+                ticker=ticker_rf,
+                nome="Tesouro RendA+ Aposentadoria Extra 2065",
+                tipo=TipoAtivo.RendaFixa,
+                setor="Tesouro Direto",
+            )
+            db.add(ativo_rf)
+            db.flush()
+            detalhes_rf = DetalhesRendaFixa(
+                ativo_id=ativo_rf.id,
+                produto=ProdutoRendaFixa.TESOURO_RENDA_MAIS,
+                indexador=Indexador.IPCA,
+                emissor="Tesouro Nacional",
+                data_vencimento=date(2084, 12, 15),
+                ano_conversao=2065,
+                num_parcelas=240,
+                dia_pagamento=15,
+                isento_ir=False,
+                cobra_custodia_b3=True,
+                codigo_mercado="tesouro-renda-mais-2065",
+            )
+            db.add(detalhes_rf)
+            db.commit()
+            print(f"  Ativo RF semeado: {ativo_rf.ticker} com DetalhesRendaFixa")
+        else:
+            print(f"  Ativo RF '{ticker_rf}' ja existe no banco de dados.")
 
         # 3. Consulta e validação de tipos Decimal
         print("\n[3/3] Validando tipos retornados pelo SQLAlchemy...")

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 from typing import List, Optional
 from collections import defaultdict
@@ -55,6 +55,7 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
         moeda=transacao_in.moeda,
         moeda_taxa=transacao_in.moeda_taxa,
         ptax_utilizada=transacao_in.ptax_utilizada,
+        taxa_contratada=transacao_in.taxa_contratada,
     )
     db.add(db_transacao)
 
@@ -132,7 +133,7 @@ def processar_transacao(db: Session, transacao_in: TransacaoCreate) -> Transacao
             else:
                 posicao.preco_medio_brl = ZERO
 
-    posicao.data_atualizacao = datetime.utcnow()
+    posicao.data_atualizacao = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(db_transacao)
@@ -235,7 +236,7 @@ def recalcular_posicoes_carteira(db: Session, carteira_id: int) -> None:
             posicao.quantidade_saldo = saldo
             posicao.custo_total_brl = custo_total
             posicao.preco_medio_brl = preco_medio
-            posicao.data_atualizacao = datetime.utcnow()
+            posicao.data_atualizacao = datetime.now(timezone.utc)
 
     # Se algum ativo não possui mais transações nesta carteira, remove a posição
     for ativo_id, pos in posicoes_existentes.items():

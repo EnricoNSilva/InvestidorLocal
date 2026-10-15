@@ -1,4 +1,4 @@
-﻿# Ambientes Virtuais
+# Ambientes Virtuais
 .venv/
 env/
 venv/
@@ -15,6 +15,7 @@ htmlcov/
 
 # Banco de dados local SQLite (gerado dinamicamente)
 *.db
+*.db.bak*
 *.sqlite3
 *.db-journal
 *.db-wal
@@ -40,3 +41,11 @@ dist/
 
 # Logs e arquivos temporários
 *.log
+
+# Cache de dados de mercado local
+backend/data/
+
+# Documentos internos de arquitetura e planejamento
+ARQUITETURA_ATUAL.md
+PLANO_UNIFICACAO.md
+

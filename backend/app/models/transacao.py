@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import String, DateTime, Enum, ForeignKey, Numeric
@@ -32,8 +32,15 @@ class Transacao(Base):
     ptax_utilizada: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(precision=18, scale=6, asdecimal=True), nullable=True
     )
+    # Taxa pactuada do lote, em PERCENTUAL:
+    #   IPCA+/Prefixado -> % a.a. (ex.: Decimal("6.9900"))
+    #   Pós-fixado CDI  -> % do CDI (ex.: Decimal("110.0000"))
+    #   NULL            -> não-RF ou taxa ainda não informada (pendência exibida na UI)
+    taxa_contratada: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=8, scale=4, asdecimal=True), nullable=True
+    )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relacionamentos
     ativo: Mapped["Ativo"] = relationship("Ativo", back_populates="transacoes")

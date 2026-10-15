@@ -13,3 +13,25 @@ class TipoOperacao(str, enum.Enum):
     BONIFICACAO = "BONIFICACAO"
     DIREITO_SUBSCRICAO = "DIREITO_SUBSCRICAO"
     DIREITO_SUBSCRICAO_EXPIRADO = "DIREITO_SUBSCRICAO_EXPIRADO"
+    AMORTIZACAO = "AMORTIZACAO"          # NOVO: evento de caixa de RF (não altera quantidade)
+    JUROS_CUPOM = "JUROS_CUPOM"          # NOVO: cupom semestral (Tesouro IPCA+ c/ juros, debêntures)
+
+class Indexador(str, enum.Enum):          # NOVO
+    IPCA = "IPCA"
+    CDI = "CDI"
+    SELIC = "SELIC"
+    PREFIXADO = "PREFIXADO"
+
+class ProdutoRendaFixa(str, enum.Enum):   # NOVO
+    TESOURO_RENDA_MAIS = "TESOURO_RENDA_MAIS"
+    TESOURO_EDUCA_MAIS = "TESOURO_EDUCA_MAIS"
+    TESOURO_IPCA = "TESOURO_IPCA"
+    TESOURO_IPCA_JUROS = "TESOURO_IPCA_JUROS"
+    TESOURO_SELIC = "TESOURO_SELIC"
+    TESOURO_PREFIXADO = "TESOURO_PREFIXADO"
+    TESOURO_PREFIXADO_JUROS = "TESOURO_PREFIXADO_JUROS"
+    CDB = "CDB"
+    LCI = "LCI"
+    LCA = "LCA"
+    LC = "LC"
+    OUTRO = "OUTRO"

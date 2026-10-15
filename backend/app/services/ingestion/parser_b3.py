@@ -8,12 +8,17 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.models.ativo import Ativo
-from app.models.enums import TipoAtivo, TipoOperacao
+from app.models.enums import TipoAtivo, TipoOperacao, ProdutoRendaFixa
 from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
 from app.services.portfolio import processar_transacao, PortfolioError, recalcular_posicoes_carteira
+from app.services.ingestion.classificador_renda_fixa import classificar_renda_fixa
+
+ANO_E_VENCIMENTO_NEGOCIACAO = False
 
 def inferir_tipo_ativo(ticker: str) -> TipoAtivo:
+    if classificar_renda_fixa(ticker, ano_e_vencimento=ANO_E_VENCIMENTO_NEGOCIACAO):
+        return TipoAtivo.RendaFixa
     clean_ticker = ticker.strip().upper()
     if clean_ticker.endswith("11") or clean_ticker.endswith("12") or clean_ticker.endswith("13") or clean_ticker.endswith("14"):
         return TipoAtivo.FII
@@ -127,11 +132,20 @@ def processar_planilha_b3(
     pendencias: List[str] = []
 
     for _, row in df.iterrows():
-        raw_ticker = str(row[col_map["ticker"]]).split()[0].replace("-", "").strip().upper()
-        if len(raw_ticker) == 6 and raw_ticker.endswith("F") and raw_ticker[:5].isalnum():
-            ticker = raw_ticker[:-1]
+        raw_val = str(row[col_map["ticker"]]).strip()
+        info_rf = classificar_renda_fixa(raw_val, ano_e_vencimento=ANO_E_VENCIMENTO_NEGOCIACAO)
+        if info_rf:
+            ticker = info_rf.ticker
+            nome_ativo = info_rf.nome
+            tipo_ativo = TipoAtivo.RendaFixa
         else:
-            ticker = raw_ticker
+            raw_ticker = raw_val.split()[0].replace("-", "").strip().upper()
+            if len(raw_ticker) == 6 and raw_ticker.endswith("F") and raw_ticker[:5].isalnum():
+                ticker = raw_ticker[:-1]
+            else:
+                ticker = raw_ticker
+            nome_ativo = f"Ativo B3 {ticker}"
+            tipo_ativo = inferir_tipo_ativo(ticker)
 
         tipo_operacao = row["_tipo_op"]
         quantidade = to_decimal(row[col_map["quantidade"]])
@@ -143,14 +157,42 @@ def processar_planilha_b3(
 
         ativo = db.query(Ativo).filter(Ativo.ticker == ticker).first()
         if not ativo:
-            tipo_ativo = inferir_tipo_ativo(ticker)
             ativo = Ativo(
                 ticker=ticker,
-                nome=f"Ativo B3 {ticker}",
+                nome=nome_ativo,
                 tipo=tipo_ativo,
-                setor=None
+                setor="Tesouro Direto" if info_rf and info_rf.produto.value.startswith("TESOURO_") else None
             )
             db.add(ativo)
+            db.flush()
+
+        if info_rf and not ativo.detalhes_rf:
+            from datetime import date
+            from app.models.renda_fixa import DetalhesRendaFixa
+            venc_date = info_rf.data_vencimento
+            if not venc_date and info_rf.ano_vencimento:
+                if info_rf.produto in (ProdutoRendaFixa.TESOURO_RENDA_MAIS, ProdutoRendaFixa.TESOURO_EDUCA_MAIS):
+                    venc_date = date(info_rf.ano_vencimento, 12, 15)
+                else:
+                    venc_date = date(info_rf.ano_vencimento, 1, 1)
+
+            dia_pgto = 15 if info_rf.produto in (ProdutoRendaFixa.TESOURO_RENDA_MAIS, ProdutoRendaFixa.TESOURO_EDUCA_MAIS) else None
+            emissor_final = info_rf.emissor or ("Tesouro Nacional" if info_rf.produto.value.startswith("TESOURO_") else "Emissor")
+
+            detalhes = DetalhesRendaFixa(
+                ativo_id=ativo.id,
+                produto=info_rf.produto,
+                indexador=info_rf.indexador,
+                emissor=emissor_final,
+                data_vencimento=venc_date,
+                ano_conversao=info_rf.ano_conversao,
+                num_parcelas=info_rf.num_parcelas,
+                dia_pagamento=dia_pgto,
+                isento_ir=info_rf.produto in (ProdutoRendaFixa.LCI, ProdutoRendaFixa.LCA),
+                cobra_custodia_b3=info_rf.produto.value.startswith("TESOURO_"),
+                codigo_mercado=info_rf.codigo_mercado,
+            )
+            db.add(detalhes)
             db.flush()
 
         data_hora = row["_data_dt"]
