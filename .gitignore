@@ -50,5 +50,19 @@ ARQUITETURA_ATUAL.md
 PLANO_UNIFICACAO.md
 PARA_REVISAO.md
 PLANO_CDI.md
-PLANO_CDI.md
+PLANO_CRUD_UX_RF.md
 
+# Planilhas e Extratos do Usuário
+*.xlsx
+*.xls
+*.csv
+*.tsv
+
+# Chaves, Certificados e Credenciais
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+client_secret*.json
+credentials*.json
