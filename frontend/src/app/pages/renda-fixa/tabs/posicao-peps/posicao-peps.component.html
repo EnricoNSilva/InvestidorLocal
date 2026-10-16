@@ -3,21 +3,21 @@
   <app-kpi-card
     label="Total Investido"
     [value]="fmtBRL(store.vendaHoje().custo)"
-    [sub]="fmtNum(store.vendaHoje().q) + ' títulos · PM ' + fmtBRL(store.vendaHoje().q > 0 ? store.vendaHoje().custo / store.vendaHoje().q : 0)"
+    [sub]="store.isCarteiraCompleta() ? (store.totalLotesAtivos() + ' lotes ativos em ' + store.totalTitulos() + ' títulos') : (fmtNum(store.vendaHoje().q) + ' títulos · PM ' + fmtBRL(store.vendaHoje().q > 0 ? store.vendaHoje().custo / store.vendaHoje().q : 0))"
     tooltipKey="totalInvestido"
   ></app-kpi-card>
 
   <app-kpi-card
     label="Saldo Bruto Atual"
     [value]="fmtBRL(store.vendaHoje().bruto)"
-    [sub]="'PU de Resgate ' + fmtBRL(store.calib().pNow)"
+    [sub]="store.isCarteiraCompleta() ? (store.totalTitulos() + ' títulos na carteira') : ('PU de Resgate ' + fmtBRL(store.calib().pNow))"
     tooltipKey="saldoBruto"
   ></app-kpi-card>
 
   <app-kpi-card
-    [label]="isCdi() ? 'Taxa Média do CDI' : 'Taxa Média de Compra'"
-    [value]="isCdi() ? (fmtPctDirect(store.posAvgRate()) + ' do CDI') : store.instrument().kind === 'SELIC_POS' ? ('Selic + ' + fmtPctDirect(store.posAvgRate())) : store.instrument().kind === 'PREFIXADO' ? (fmtPctDirect(store.posAvgRate()) + ' a.a.') : ('IPCA + ' + fmtPct(store.posAvgRate() / 100))"
-    [sub]="isCdi() ? ('CDI Anual: ' + fmtPctDirect(store.premissas().cdiRatePct) + ' a.a.') : ('Mercado hoje: IPCA + ' + fmtPct(store.calib().rNow))"
+    [label]="store.isCarteiraCompleta() ? 'Composição / Ativos' : (isCdi() ? 'Taxa Média do CDI' : 'Taxa Média de Compra')"
+    [value]="store.isCarteiraCompleta() ? (store.totalTitulos() + ' Títulos Ativos') : (isCdi() ? (fmtPctDirect(store.posAvgRate()) + ' do CDI') : store.instrument().kind === 'SELIC_POS' ? ('Selic + ' + fmtPctDirect(store.posAvgRate())) : store.instrument().kind === 'PREFIXADO' ? (fmtPctDirect(store.posAvgRate()) + ' a.a.') : ('IPCA + ' + fmtPct(store.posAvgRate() / 100)))"
+    [sub]="store.isCarteiraCompleta() ? (store.totalLotesAtivos() + ' lotes cadastrados') : (isCdi() ? ('CDI Anual: ' + fmtPctDirect(store.premissas().cdiRatePct) + ' a.a.') : ('Mercado hoje: IPCA + ' + fmtPct(store.calib().rNow)))"
     tooltipKey="taxaMediaCompra"
   ></app-kpi-card>
 
@@ -40,13 +40,13 @@
   <app-kpi-card
     label="IR Total Retido"
     [value]="fmtBRL(store.vendaHoje().bruto - store.vendaHoje().liqApp)"
-    [sub]="'Custódia B3: ' + fmtBRL(store.vendaHoje().cust)"
+    [sub]="'Custódia B3: ' + fmtBRL(store.vendaHoje().cust) + (store.vendaHoje().iof > 0 ? ' · IOF: ' + fmtBRL(store.vendaHoje().iof) : '')"
     tooltipKey="irRetido"
   ></app-kpi-card>
 </div>
 
 <!-- Card de Equivalência Fiscal LCI/LCA vs CDB (% do CDI) -->
-@if (isCdi()) {
+@if (!store.isCarteiraCompleta() && isCdi()) {
   <div class="card equivalence-card">
     <div class="equiv-header">
       <span class="icon">⚖️</span>
@@ -106,6 +106,12 @@
       >Por Indexador</button>
       <button
         class="btn btn-sm"
+        [class.btn-primary]="allocationMode() === 'titulo'"
+        [class.btn-secondary]="allocationMode() !== 'titulo'"
+        (click)="setAllocationMode('titulo')"
+      >Por Título</button>
+      <button
+        class="btn btn-sm"
         [class.btn-primary]="allocationMode() === 'lote'"
         [class.btn-secondary]="allocationMode() !== 'lote'"
         (click)="setAllocationMode('lote')"
@@ -113,7 +119,7 @@
     </div>
   </div>
   <app-allocation-chart
-    [slices]="allocationMode() === 'indexador' ? store.alocacaoIndexador() : store.alocacaoLotes()"
+    [slices]="allocationSlices()"
     [mode]="allocationMode()"
   ></app-allocation-chart>
 </div>
@@ -155,6 +161,9 @@
     <table class="data-table">
       <thead>
         <tr>
+          @if (store.isCarteiraCompleta()) {
+            <th>Título / Ativo</th>
+          }
           <th>Data Compra</th>
           <th>Taxa Compra</th>
           <th>PU Compra</th>
@@ -166,7 +175,8 @@
           <th>IR Retido</th>
           <th>Líquido (App)</th>
           <th>Rentab. %</th>
-          <th>Status / Ação</th>
+          <th>Status</th>
+          <th>Ações</th>
         </tr>
       </thead>
       <tbody>
@@ -175,14 +185,24 @@
           @let lucroLote = part.liqApp - part.custo;
           @let pctLote = part.custo > 0 ? (lucroLote / part.custo) : 0;
           @let sched = getIRSchedule(part.days);
+          @let partAtivo = getPartAtivo(part);
+          @let partKind = getPartInstrumentKind(part);
           <tr>
+            @if (store.isCarteiraCompleta()) {
+              <td>
+                <div class="ativo-cell">
+                  <strong>{{ partAtivo?.ticker || partAtivo?.nome }}</strong>
+                  <span class="badge badge-neutral badge-indexer">{{ getIndexerBadge(partAtivo) }}</span>
+                </div>
+              </td>
+            }
             <td>{{ formatDateBRL(part.lot.date) }}</td>
             <td>
-              @if (store.instrument().kind === 'CDI_POS') {
+              @if (partKind === 'CDI_POS') {
                 <strong>{{ fmtPctDirect(part.lot.rate) }} do CDI</strong>
-              } @else if (store.instrument().kind === 'SELIC_POS') {
+              } @else if (partKind === 'SELIC_POS') {
                 <strong>Selic + {{ fmtPctDirect(part.lot.rate) }}</strong>
-              } @else if (store.instrument().kind === 'PREFIXADO') {
+              } @else if (partKind === 'PREFIXADO') {
                 <strong>{{ fmtPctDirect(part.lot.rate) }} a.a.</strong>
               } @else {
                 <strong>IPCA + {{ fmtPctDirect(part.lot.rate) }}</strong>
@@ -203,13 +223,17 @@
             <td>
               <div>{{ fmtBRL(part.bruto - part.liqApp) }}</div>
               <div class="badge-row">
-                <span class="badge badge-neutral">{{ fmtPct(part.irAliq, 1) }}</span>
-                @if (sched.nextRate) {
-                  <span class="badge badge-info" [title]="sched.daysRemaining + ' dias para cair para ' + fmtPct(sched.nextRate, 1)">
-                    ⏳ {{ sched.statusText }}
-                  </span>
+                @if (partAtivo?.detalhes_rf?.isento_ir || part.irAliq === 0) {
+                  <span class="badge badge-success">ISENTO</span>
                 } @else {
-                  <span class="badge badge-success">⭐ Mín. 15%</span>
+                  <span class="badge badge-neutral">{{ fmtPct(part.irAliq, 1) }}</span>
+                  @if (sched.nextRate) {
+                    <span class="badge badge-info" [title]="sched.daysRemaining + ' dias para cair para ' + fmtPct(sched.nextRate, 1)">
+                      ⏳ {{ sched.statusText }}
+                    </span>
+                  } @else {
+                    <span class="badge badge-success">⭐ Mín. 15%</span>
+                  }
                 }
               </div>
             </td>
@@ -220,46 +244,129 @@
             <td>
               <span class="badge badge-success">Ativo PEPS</span>
             </td>
+            <td>
+              @if (excluindoLoteId() === part.lot.id) {
+                <div class="row-confirm-box">
+                  <span class="confirm-text">Excluir?</span>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-danger btn-confirm-del"
+                    [disabled]="excluindoLoteLoading()"
+                    (click)="confirmarExclusaoLote(part.lot.id)"
+                  >Sim</button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-secondary btn-cancel-del"
+                    [disabled]="excluindoLoteLoading()"
+                    (click)="cancelarExclusaoLote()"
+                  >Não</button>
+                </div>
+              } @else {
+                <div class="row-actions">
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-secondary btn-edit-lote"
+                    (click)="editarLote(part.lot.id)"
+                    title="Editar dados deste lote"
+                  >✏️ Editar</button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-outline-danger btn-delete-lote"
+                    (click)="iniciarExclusaoLote(part.lot.id)"
+                    title="Excluir este lote"
+                  >🗑️ Excluir</button>
+                </div>
+              }
+            </td>
           </tr>
         }
 
         <!-- Lotes Pendentes (Sem Taxa Contratada) -->
-        @for (lote of store.posicao()?.lotes; track lote.transacao_id) {
-          @if (lote.taxa_contratada === null || lote.taxa_contratada === undefined || lote.taxa_contratada === '') {
-            <tr class="pending-row">
-              <td>{{ formatDateBRL(lote.data_compra) }}</td>
-              <td colspan="2">
-                <div class="inline-edit">
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Ex: 6.99"
-                    [(ngModel)]="taxaDrafts[lote.transacao_id]"
-                    class="taxa-input"
-                  />
-                  <span class="taxa-suffix">% a.a.</span>
-                  <button
-                    class="btn btn-primary btn-sm"
-                    [disabled]="salvandoId() === lote.transacao_id"
-                    (click)="salvarTaxa(lote)"
-                  >
-                    {{ salvandoId() === lote.transacao_id ? 'Salvando...' : 'Salvar Taxa' }}
-                  </button>
+        @for (lote of store.lotesPendentes(); track lote.transacao_id) {
+          <tr class="pending-row">
+            @if (store.isCarteiraCompleta()) {
+              <td>
+                <div class="ativo-cell">
+                  <strong>{{ lote.ativo.ticker || lote.ativo.nome }}</strong>
+                  <span class="badge badge-neutral badge-indexer">{{ getIndexerBadge(lote.ativo) }}</span>
                 </div>
               </td>
-              <td>{{ fmtNum(lote.quantidade_aberta) }}</td>
-              <td>{{ fmtBRL(lote.custo_aberto_brl) }}</td>
-              <td>--</td>
-              <td>--</td>
-              <td>--</td>
-              <td>--</td>
-              <td>--</td>
-              <td>--</td>
-              <td>
-                <span class="badge badge-danger">Taxa Pendente</span>
-              </td>
-            </tr>
-          }
+            }
+            <td>{{ formatDateBRL(lote.data_compra) }}</td>
+            <td colspan="2">
+              <div class="inline-edit">
+                <input
+                  type="number"
+                  step="0.01"
+                  [placeholder]="lote.ativo.detalhes_rf?.indexador === 'CDI' ? 'Ex: 110' : 'Ex: 6.99'"
+                  [(ngModel)]="taxaDrafts[lote.transacao_id]"
+                  class="taxa-input"
+                />
+                <span class="taxa-suffix">{{ lote.ativo.detalhes_rf?.indexador === 'CDI' ? '% do CDI' : '% a.a.' }}</span>
+                <button
+                  class="btn btn-primary btn-sm"
+                  [disabled]="salvandoId() === lote.transacao_id"
+                  (click)="salvarTaxa(lote)"
+                >
+                  {{ salvandoId() === lote.transacao_id ? 'Salvando...' : 'Salvar Taxa' }}
+                </button>
+              </div>
+            </td>
+            <td>{{ fmtNum(lote.quantidade_aberta) }}</td>
+            <td>{{ fmtBRL(lote.custo_aberto_brl) }}</td>
+            <td>--</td>
+            <td>--</td>
+            <td>--</td>
+            <td>--</td>
+            <td>--</td>
+            <td>--</td>
+            <td>
+              <span class="badge badge-danger">Taxa Pendente</span>
+            </td>
+            <td>
+              @if (excluindoLoteId() === lote.transacao_id) {
+                <div class="row-confirm-box">
+                  <span class="confirm-text">Excluir?</span>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-danger btn-confirm-del"
+                    [disabled]="excluindoLoteLoading()"
+                    (click)="confirmarExclusaoLote(lote.transacao_id)"
+                  >Sim</button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-secondary btn-cancel-del"
+                    [disabled]="excluindoLoteLoading()"
+                    (click)="cancelarExclusaoLote()"
+                  >Não</button>
+                </div>
+              } @else {
+                <div class="row-actions">
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-secondary btn-edit-lote"
+                    (click)="editarLote(lote.transacao_id)"
+                    title="Editar dados deste lote"
+                  >✏️ Editar</button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-outline-danger btn-delete-lote"
+                    (click)="iniciarExclusaoLote(lote.transacao_id)"
+                    title="Excluir este lote"
+                  >🗑️ Excluir</button>
+                </div>
+              }
+            </td>
+          </tr>
+        }
+
+        <!-- Estado Vazio: Nenhum Lote -->
+        @if (store.vendaHoje().parts.length === 0 && store.lotesPendentes().length === 0) {
+          <tr>
+            <td [attr.colspan]="store.isCarteiraCompleta() ? 14 : 13" class="text-center empty-table-msg" style="padding: 32px 16px; color: var(--text-secondary, #94a3b8); text-align: center;">
+              Nenhum lote cadastrado para esta seleção. Use o botão <strong>+ Novo Aporte</strong> para adicionar lotes.
+            </td>
+          </tr>
         }
 
         <!-- Linha Consolidada de Totais -->
@@ -267,10 +374,31 @@
           @let totalLucro = store.vendaHoje().liqApp - store.vendaHoje().custo;
           @let totalPct = store.vendaHoje().custo > 0 ? (totalLucro / store.vendaHoje().custo) : 0;
           <tr class="total-row">
+            @if (store.isCarteiraCompleta()) {
+              <td><strong>Consolidado</strong></td>
+            }
             <td><strong>Total</strong></td>
-            <td><strong>IPCA + {{ fmtPct(store.posAvgRate() / 100) }}</strong></td>
-            <td>{{ fmtBRL(store.vendaHoje().q > 0 ? store.vendaHoje().custo / store.vendaHoje().q : 0) }}</td>
-            <td><strong>{{ fmtNum(store.vendaHoje().q) }}</strong></td>
+            <td>
+              @if (store.isCarteiraCompleta()) {
+                <strong>Múltiplos Ativos</strong>
+              } @else if (store.instrument().kind === 'CDI_POS') {
+                <strong>{{ fmtPctDirect(store.posAvgRate()) }} do CDI</strong>
+              } @else if (store.instrument().kind === 'SELIC_POS') {
+                <strong>Selic + {{ fmtPctDirect(store.posAvgRate()) }}</strong>
+              } @else if (store.instrument().kind === 'PREFIXADO') {
+                <strong>{{ fmtPctDirect(store.posAvgRate()) }} a.a.</strong>
+              } @else {
+                <strong>IPCA + {{ fmtPct(store.posAvgRate() / 100) }}</strong>
+              }
+            </td>
+            <td>
+              @if (store.isCarteiraCompleta()) {
+                --
+              } @else {
+                {{ fmtBRL(store.vendaHoje().q > 0 ? store.vendaHoje().custo / store.vendaHoje().q : 0) }}
+              }
+            </td>
+            <td><strong>{{ store.isCarteiraCompleta() ? '--' : fmtNum(store.vendaHoje().q) }}</strong></td>
             <td><strong>{{ fmtBRL(store.vendaHoje().custo) }}</strong></td>
             <td>--</td>
             <td><strong>{{ fmtBRL(store.vendaHoje().bruto) }}</strong></td>
@@ -280,6 +408,7 @@
             <td [ngClass]="totalPct >= 0 ? 'pos' : 'neg'" style="font-size:14px;font-weight:700">
               {{ totalPct >= 0 ? '+' : '' }}{{ fmtPct(totalPct) }}
             </td>
+            <td>--</td>
             <td>--</td>
           </tr>
         }

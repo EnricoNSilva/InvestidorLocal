@@ -29,6 +29,7 @@ import { NovoTituloRfModalComponent } from './components/novo-titulo-modal.compo
 export class RendaFixaShellComponent implements OnInit {
   readonly store = inject(RendaFixaStore);
   readonly showModal = signal<boolean>(false);
+  readonly confirmandoExclusaoAtivo = signal<boolean>(false);
 
   ngOnInit(): void {
     try {
@@ -49,17 +50,52 @@ export class RendaFixaShellComponent implements OnInit {
 
   onAtivoChange(idVal: any): void {
     const id = Number(idVal);
-    if (!isNaN(id) && id > 0) {
+    if (!isNaN(id) && id >= 0) {
       this.store.selecionarAtivo(id);
     }
   }
 
   openNovoTituloModal(): void {
     this.showModal.set(true);
+    this.store.abrirModal('NOVO_TITULO');
+  }
+
+  openNovoAporteModal(): void {
+    if (this.store.ativos().length === 0) {
+      this.openNovoTituloModal();
+      return;
+    }
+    this.showModal.set(true);
+    this.store.abrirModal('NOVO_APORTE');
+  }
+
+  openEditarTituloModal(): void {
+    this.showModal.set(true);
+    this.store.abrirModal('EDITAR_TITULO');
+  }
+
+  iniciarExclusaoAtivo(): void {
+    this.confirmandoExclusaoAtivo.set(true);
+  }
+
+  cancelarExclusaoAtivo(): void {
+    this.confirmandoExclusaoAtivo.set(false);
+  }
+
+  async confirmarExclusaoAtivo(): Promise<void> {
+    const atId = this.store.posicao()?.ativo?.id;
+    try {
+      if (atId) {
+        await this.store.excluirTitulo(atId);
+      }
+    } finally {
+      this.confirmandoExclusaoAtivo.set(false);
+    }
   }
 
   closeNovoTituloModal(): void {
     this.showModal.set(false);
+    this.store.fecharModal();
   }
 
   formatDate(d: string | null | undefined): string {

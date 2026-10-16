@@ -84,4 +84,16 @@ describe('AllocationChartComponent', () => {
     expect(res).toContain('R$ 15.000,00');
     expect(res).toContain('60.0%');
   });
+
+  it('buildAllocationConfig e getSliceColors devem atribuir cores distintas para CDI (#06b6d4) e IPCA (#3b82f6)', () => {
+    const slices: AllocationSlice[] = [
+      { label: 'IPCA+ / RendA+', value: 1000, pct: 0.5 },
+      { label: 'Pós-Fixado CDI', value: 1000, pct: 0.5 },
+    ];
+    const cfg = buildAllocationConfig(slices, 'indexador');
+    const colors = cfg.data.datasets[0].backgroundColor as string[];
+    expect(colors[0]).toBe('#3b82f6'); // IPCA
+    expect(colors[1]).toBe('#06b6d4'); // CDI
+    expect(colors[0]).not.toBe(colors[1]);
+  });
 });

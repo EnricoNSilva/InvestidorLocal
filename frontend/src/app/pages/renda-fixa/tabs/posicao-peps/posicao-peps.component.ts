@@ -6,7 +6,7 @@ import { KpiCardComponent } from '../../components/kpi-card.component';
 import { InfoTipComponent } from '../../components/info-tip.component';
 import { AllocationChartComponent } from '../../charts/allocation-chart.component';
 import { getIRSchedule } from '../../../../core/financial-engine';
-import { LoteAbertoDto } from '../../../../core/models/renda-fixa.models';
+import { AllocationMode, AtivoRendaFixa, LoteAbertoDto } from '../../../../core/models/renda-fixa.models';
 
 @Component({
   selector: 'app-posicao-peps',
@@ -24,10 +24,12 @@ import { LoteAbertoDto } from '../../../../core/models/renda-fixa.models';
 })
 export class PosicaoPepsComponent {
   readonly store = inject(RendaFixaStore);
-  readonly allocationMode = signal<'indexador' | 'lote'>('indexador');
+  readonly allocationMode = signal<AllocationMode>('indexador');
   readonly taxaDrafts: Record<number, number> = {};
   readonly salvandoId = signal<number | null>(null);
   readonly salvarErro = signal<string | null>(null);
+  readonly excluindoLoteId = signal<number | null>(null);
+  readonly excluindoLoteLoading = signal<boolean>(false);
 
   readonly isentoIr = computed(() => Boolean(this.store.posicao()?.ativo?.detalhes_rf?.isento_ir));
   readonly isCdi = computed(() => this.store.instrument().kind === 'CDI_POS');
@@ -62,12 +64,39 @@ export class PosicaoPepsComponent {
     }
   });
 
+  readonly allocationSlices = computed(() => {
+    const m = this.allocationMode();
+    if (m === 'titulo') return this.store.alocacaoTitulo();
+    if (m === 'lote') return this.store.alocacaoLotes();
+    return this.store.alocacaoIndexador();
+  });
+
   getIRSchedule(days: number) {
     return getIRSchedule(days);
   }
 
-  setAllocationMode(mode: 'indexador' | 'lote') {
+  setAllocationMode(mode: AllocationMode) {
     this.allocationMode.set(mode);
+  }
+
+  getIndexerBadge(ativo?: AtivoRendaFixa | null): string {
+    if (!ativo?.detalhes_rf) return 'RF';
+    const idx = (ativo.detalhes_rf.indexador || 'IPCA').toUpperCase();
+    const prod = (ativo.detalhes_rf.produto || '').toUpperCase();
+    if (idx.includes('SELIC') || prod.includes('SELIC')) return 'SELIC';
+    if (idx.includes('CDI') || prod === 'CDB' || prod === 'LCI' || prod === 'LCA' || prod === 'LC') return 'CDI';
+    if (idx.includes('PRE') || prod.includes('PREFIXADO')) return 'PRE';
+    if (prod.includes('RENDA_MAIS')) return 'REND A+';
+    if (prod.includes('EDUCA_MAIS')) return 'EDUCA+';
+    return 'IPCA+';
+  }
+
+  getPartAtivo(part: any): AtivoRendaFixa | null {
+    return part?.ativo || this.store.posicao()?.ativo || null;
+  }
+
+  getPartInstrumentKind(part: any): string {
+    return part?.instrument?.kind || this.store.instrument().kind;
   }
 
   fmtBRL(v: number | string | undefined | null): string {
@@ -114,7 +143,7 @@ export class PosicaoPepsComponent {
   async salvarTaxa(lote: LoteAbertoDto) {
     const val = this.taxaDrafts[lote.transacao_id];
     if (val === undefined || isNaN(val) || val < 0) {
-      this.salvarErro.set('Por favor, informe uma taxa contratada válida em % a.a.');
+      this.salvarErro.set('Por favor, informe uma taxa contratada válida.');
       return;
     }
     this.salvarErro.set(null);
@@ -128,4 +157,43 @@ export class PosicaoPepsComponent {
       this.salvandoId.set(null);
     }
   }
+
+  getLote(transacaoId: number | string): LoteAbertoDto | undefined {
+    const idNum = Number(transacaoId);
+    if (this.store.isCarteiraCompleta()) {
+      for (const pos of this.store.todasPosicoes()) {
+        const found = pos.lotes?.find((l) => Number(l.transacao_id) === idNum);
+        if (found) return found;
+      }
+    }
+    return this.store.posicao()?.lotes?.find((l) => Number(l.transacao_id) === idNum);
+  }
+
+  editarLote(transacaoId: number | string): void {
+    const lote = this.getLote(transacaoId);
+    if (lote) {
+      this.store.abrirModal('EDITAR_LOTE', lote);
+    }
+  }
+
+  iniciarExclusaoLote(transacaoId: number | string): void {
+    this.excluindoLoteId.set(Number(transacaoId));
+  }
+
+  cancelarExclusaoLote(): void {
+    this.excluindoLoteId.set(null);
+  }
+
+  async confirmarExclusaoLote(transacaoId: number | string): Promise<void> {
+    this.excluindoLoteLoading.set(true);
+    try {
+      await this.store.excluirLote(Number(transacaoId));
+    } catch (e: any) {
+      this.salvarErro.set('Erro ao excluir lote: ' + (e?.message || 'erro desconhecido'));
+    } finally {
+      this.excluindoLoteLoading.set(false);
+      this.excluindoLoteId.set(null);
+    }
+  }
 }
+

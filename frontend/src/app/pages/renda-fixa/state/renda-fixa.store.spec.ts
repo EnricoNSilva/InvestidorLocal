@@ -92,6 +92,7 @@ describe('RendaFixaStore', () => {
   };
 
   beforeEach(() => {
+    localStorage.clear();
     TestBed.configureTestingModule({
       providers: [
         RendaFixaStore,
@@ -107,6 +108,7 @@ describe('RendaFixaStore', () => {
 
   afterEach(() => {
     httpMock.verify();
+    localStorage.clear();
   });
 
   it('deve carregar ativos e lotes, e calcular vendaHoje() com paridade ao golden master', async () => {
@@ -778,6 +780,397 @@ describe('RendaFixaStore', () => {
     expect(rowsPre[0].brutoDiff).toBeGreaterThan(0);
     expect(rowsPre[rowsPre.length - 1].brutoDiff).toBeLessThan(0);
   });
+
+  it('atualizarTitulo: deve invocar PUT /ativos/{id}, recarregar ativos e lotes, e atualizar a posicao', async () => {
+    const updatedAtivo: AtivoRendaFixa = {
+      ...fakeAtivo,
+      nome: 'Tesouro RendA+ 2065 Atualizado',
+    };
+    const updatedPos: PosicaoRendaFixa = {
+      ...fakeLotesResp.posicoes[0],
+      ativo: updatedAtivo,
+    };
+
+    store.posicao.set(fakeLotesResp.posicoes[0]);
+    store.ativoId.set(1);
+
+    const p = store.atualizarTitulo(1, {
+      nome: 'Tesouro RendA+ 2065 Atualizado',
+      detalhes: {
+        produto: 'TESOURO_RENDA_MAIS',
+        indexador: 'IPCA',
+      },
+    });
+
+    const reqPut = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos/1?carteira_id=1');
+    expect(reqPut.request.method).toBe('PUT');
+    reqPut.flush(updatedPos);
+    await Promise.resolve();
+
+    const reqAtivos = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos');
+    reqAtivos.flush([updatedAtivo]);
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-05T00:00:00Z', posicoes: [updatedPos] });
+
+    const res = await p;
+    expect(res.ativo.nome).toBe('Tesouro RendA+ 2065 Atualizado');
+    expect(store.posicao()?.ativo.nome).toBe('Tesouro RendA+ 2065 Atualizado');
+  });
+
+  it('excluirTitulo: deve invocar DELETE /ativos/{id}, recarregar e selecionar próximo ativo ou limpar se vazio', async () => {
+    store.posicao.set(fakeLotesResp.posicoes[0]);
+    store.ativoId.set(1);
+
+    const p = store.excluirTitulo(1);
+
+    const reqDel = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos/1');
+    expect(reqDel.request.method).toBe('DELETE');
+    reqDel.flush(null);
+    await Promise.resolve();
+
+    const reqAtivos = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos');
+    reqAtivos.flush([]);
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-05T00:00:00Z', posicoes: [] });
+
+    await p;
+    expect(store.ativos().length).toBe(0);
+    expect(store.ativoId()).toBeNull();
+    expect(store.posicao()).toBeNull();
+  });
+
+  it('excluirTitulo: deve preservar ativo selecionado caso o título excluído seja outro', async () => {
+    const at1: AtivoRendaFixa = { id: 1, ticker: 'CDB-1', nome: 'CDB 1', tipo: 'RendaFixa' };
+    const at2: AtivoRendaFixa = { id: 2, ticker: 'CDB-2', nome: 'CDB 2', tipo: 'RendaFixa' };
+    const pos2: PosicaoRendaFixa = {
+      ativo: at2,
+      lotes: [],
+      fluxos_recebidos: [],
+      quantidade_total: '10',
+      custo_total_brl: '1000',
+      pendencias: [],
+    };
+
+    store.ativos.set([at1, at2]);
+    store.ativoId.set(2);
+    store.posicao.set(pos2);
+
+    const p = store.excluirTitulo(1);
+
+    const reqDel = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos/1');
+    reqDel.flush(null);
+    await Promise.resolve();
+
+    const reqAtivos = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos');
+    reqAtivos.flush([at2]);
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-05T00:00:00Z', posicoes: [pos2] });
+
+    await p;
+    expect(store.ativos().length).toBe(1);
+    expect(store.ativoId()).toBe(2);
+    expect(store.posicao()?.ativo.id).toBe(2);
+  });
+
+  it('editarLote: deve invocar PUT /lotes/{id}, atualizar posicao e recarregar todasPosicoes', async () => {
+    const updatedPos: PosicaoRendaFixa = {
+      ...fakeLotesResp.posicoes[0],
+      quantidade_total: '145.00',
+    };
+
+    store.posicao.set(fakeLotesResp.posicoes[0]);
+
+    const p = store.editarLote(1, {
+      data_compra: '2026-01-25',
+      quantidade: 30,
+      preco_unitario: 190,
+      taxa_contratada: 7.0,
+      taxas: 0,
+    });
+
+    const reqPut = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes/1');
+    expect(reqPut.request.method).toBe('PUT');
+    reqPut.flush(updatedPos);
+    await Promise.resolve();
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-05T00:00:00Z', posicoes: [updatedPos] });
+
+    const res = await p;
+    expect(res.quantidade_total).toBe('145.00');
+    expect(store.posicao()?.quantidade_total).toBe('145.00');
+  });
+
+  it('excluirLote: deve invocar DELETE /lotes/{id}, atualizar posicao e recarregar todasPosicoes', async () => {
+    const updatedPos: PosicaoRendaFixa = {
+      ...fakeLotesResp.posicoes[0],
+      lotes: fakeLotesResp.posicoes[0].lotes.slice(1),
+    };
+
+    store.posicao.set(fakeLotesResp.posicoes[0]);
+
+    const p = store.excluirLote(1);
+
+    const reqDel = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes/1');
+    expect(reqDel.request.method).toBe('DELETE');
+    reqDel.flush(updatedPos);
+    await Promise.resolve();
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-05T00:00:00Z', posicoes: [updatedPos] });
+
+    const res = await p;
+    expect(res.lotes.length).toBe(fakeLotesResp.posicoes[0].lotes.length - 1);
+    expect(store.posicao()?.lotes.length).toBe(fakeLotesResp.posicoes[0].lotes.length - 1);
+  });
+
+  it('abrirModal e fecharModal: devem controlar o sinal modalState', () => {
+    expect(store.modalState().open).toBeFalse();
+
+    store.abrirModal('EDITAR_TITULO');
+    expect(store.modalState().open).toBeTrue();
+    expect(store.modalState().mode).toBe('EDITAR_TITULO');
+
+    store.fecharModal();
+    expect(store.modalState().open).toBeFalse();
+    expect(store.modalState().mode).toBe('NOVO_TITULO');
+  });
+
+  describe('Carteira Completa (ativoId === 0)', () => {
+    const fakeAtivo2: AtivoRendaFixa = {
+      id: 2,
+      ticker: 'CDB-INTER-110',
+      nome: 'CDB Banco Inter 110% CDI',
+      tipo: 'RendaFixa' as any,
+      detalhes_rf: {
+        ativo_id: 2,
+        produto: 'CDB',
+        indexador: 'CDI',
+        emissor: 'Banco Inter',
+        percentual_indexador: 110,
+        data_vencimento: '2028-12-31',
+        isento_ir: false,
+        cobra_custodia_b3: false,
+      },
+    };
+
+    const fakePosicao2: PosicaoRendaFixa = {
+      ativo: fakeAtivo2,
+      lotes: [
+        {
+          transacao_id: 10,
+          data_compra: '2026-02-15',
+          taxa_contratada: 110,
+          preco_unitario: 1000,
+          quantidade_original: 10,
+          quantidade_aberta: 10,
+          custo_aberto_brl: 10000,
+          custo_conhecido: true,
+        },
+        {
+          transacao_id: 11,
+          data_compra: '2026-08-20',
+          taxa_contratada: 110,
+          preco_unitario: 1000,
+          quantidade_original: 5,
+          quantidade_aberta: 5,
+          custo_aberto_brl: 5000,
+          custo_conhecido: true,
+        },
+        {
+          transacao_id: 12,
+          data_compra: '2026-09-01',
+          taxa_contratada: null,
+          preco_unitario: 1000,
+          quantidade_original: 2,
+          quantidade_aberta: 2,
+          custo_aberto_brl: 2000,
+          custo_conhecido: false,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '17.00',
+      custo_total_brl: '17000.00',
+      pendencias: ['Lote 12 sem taxa contratada'],
+    };
+
+    beforeEach(() => {
+      store.ativos.set([fakeAtivo, fakeAtivo2]);
+      store.todasPosicoes.set([fakeLotesResp.posicoes[0], fakePosicao2]);
+      store.ativoId.set(0);
+      store.patchPremissas({
+        refDate: '2026-10-05',
+        refPrice: 243.38,
+        refRate: '',
+        ipcaCal: 4.5,
+        ipcaProj: 4.5,
+        cdiRatePct: 10.75,
+        custody: { custMode: 'single', cust1: 0.5 },
+      });
+    });
+
+    it('isCarteiraCompleta deve ser true quando ativoId for 0 e false caso contrário', () => {
+      expect(store.isCarteiraCompleta()).toBeTrue();
+      store.ativoId.set(1);
+      expect(store.isCarteiraCompleta()).toBeFalse();
+      store.ativoId.set(null);
+      expect(store.isCarteiraCompleta()).toBeFalse();
+    });
+
+    it('totalTitulos e totalLotesAtivos calculam o total correto da carteira consolidada', () => {
+      expect(store.totalTitulos()).toBe(2);
+      // fakeAtivo tem 4 lotes abertos, fakeAtivo2 tem 3 lotes abertos
+      expect(store.totalLotesAtivos()).toBe(7);
+    });
+
+    it('vendaHojeConsolidada agrega custo, bruto, impostos e ordena os lotes cronologicamente', () => {
+      const vHoje = store.vendaHoje();
+      expect(vHoje).toBeTruthy();
+
+      // Verifica soma de custo: 24658.92 + 15000.00 = 39658.92
+      expect(vHoje.custo).toBeCloseTo(24658.92 + 15000, 1);
+      // Bruto consolidado deve ser maior que o custo (rendimento positivo)
+      expect(vHoje.bruto).toBeGreaterThan(vHoje.custo);
+      expect(vHoje.liqReal).toBeGreaterThan(0);
+      expect(vHoje.liqApp).toBeGreaterThan(0);
+
+      // Quantidade de fatias consolidadas
+      expect(vHoje.parts.length).toBe(6);
+
+      // Ordenação cronológica estrita por data_compra:
+      // 1. 2026-01-23 (lote 1, ativo 1)
+      // 2. 2026-02-15 (lote 10, ativo 2)
+      // 3. 2026-03-24 (lote 2, ativo 1)
+      // 4. 2026-06-08 (lote 3, ativo 1)
+      // 5. 2026-07-30 (lote 4, ativo 1)
+      // 6. 2026-08-20 (lote 11, ativo 2)
+      expect(vHoje.parts[0].lot.date).toBe('2026-01-23');
+      expect(vHoje.parts[0].ativo?.id).toBe(1);
+      expect(vHoje.parts[1].lot.date).toBe('2026-02-15');
+      expect(vHoje.parts[1].ativo?.id).toBe(2);
+      expect(vHoje.parts[2].lot.date).toBe('2026-03-24');
+      expect(vHoje.parts[3].lot.date).toBe('2026-06-08');
+      expect(vHoje.parts[4].lot.date).toBe('2026-07-30');
+      expect(vHoje.parts[5].lot.date).toBe('2026-08-20');
+      expect(vHoje.parts[5].ativo?.id).toBe(2);
+    });
+
+    it('posTIR calcula a taxa interna de retorno consolidada considerando fluxos de todos os títulos', () => {
+      const tir = store.posTIR();
+      expect(tir).not.toBeNull();
+      expect(tir!).toBeGreaterThan(0);
+      expect(tir!).toBeLessThan(1); // TIR razoável anual
+    });
+
+    it('alocacaoTitulo deve gerar fatias percentuais proporcionais ao saldo bruto de cada título', () => {
+      const fatias = store.alocacaoTitulo();
+      expect(fatias.length).toBe(2);
+      expect(fatias[0].label).toBe('TD-RENDA+-2065');
+      expect(fatias[1].label).toBe('CDB-INTER-110');
+
+      const somaPct = fatias.reduce((acc, f) => acc + f.pct, 0);
+      expect(somaPct).toBeCloseTo(1, 2);
+    });
+
+    it('alocacaoIndexador deve consolidar por indexador em Carteira Completa', () => {
+      const fatias = store.alocacaoIndexador();
+      expect(fatias.length).toBe(2);
+      const labels = fatias.map(f => f.label);
+      expect(labels.some(l => l.includes('IPCA'))).toBeTrue();
+      expect(labels.some(l => l.includes('CDI'))).toBeTrue();
+    });
+
+    it('lotesPendentes agrega pendências de todos os títulos na carteira completa', () => {
+      const pendencias = store.lotesPendentes();
+      expect(pendencias.length).toBe(1);
+      expect(pendencias[0].transacao_id).toBe(12);
+      expect(pendencias[0].ativo.id).toBe(2);
+      expect(pendencias[0].ativo.ticker).toBe('CDB-INTER-110');
+    });
+
+    it('projecao consolida as curvas somando o saldo de todos os ativos', () => {
+      const proj = store.projecao();
+      expect(proj.labels.length).toBe(21); // 0 a 10 anos em passos semestrais
+      expect(proj.series.alvo.length).toBe(21);
+      expect(proj.series.carrego.length).toBe(21);
+
+      expect(proj.series.alvo[0]).toBeGreaterThan(0);
+      expect(proj.series.carrego[0]).toBeGreaterThan(0);
+    });
+
+    it('selecionarAtivo(0) salva 0 no localStorage e limpa a posicao individual', async () => {
+      spyOn(localStorage, 'setItem');
+      store.posicao.set(fakeLotesResp.posicoes[0]);
+
+      const p = store.selecionarAtivo(0);
+      const req = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+      req.flush(fakeLotesResp);
+      await p;
+
+      expect(store.ativoId()).toBe(0);
+      expect(store.posicao()).toBeNull();
+      expect(localStorage.setItem).toHaveBeenCalledWith('il.rendafixa.ativo_selecionado.v1', '0');
+    });
+
+    it('posRealReturnPct deve retornar 0 quando o custo total investido for 0', () => {
+      store.todasPosicoes.set([]);
+      expect(store.vendaHoje().custo).toBe(0);
+      expect(store.posRealReturnPct()).toBe(0);
+    });
+
+    it('alocacaoTitulo filtra ativos com saldo 0 ou sem lotes', () => {
+      const posVazia: PosicaoRendaFixa = {
+        ativo: { id: 99, ticker: 'CDB-VAZIO', nome: 'CDB Vazio', tipo: 'RendaFixa' as any },
+        lotes: [],
+        fluxos_recebidos: [],
+        quantidade_total: '0',
+        custo_total_brl: '0',
+        pendencias: [],
+      };
+      store.todasPosicoes.set([fakeLotesResp.posicoes[0], fakePosicao2, posVazia]);
+      const fatias = store.alocacaoTitulo();
+      expect(fatias.some((f) => f.label === 'CDB-VAZIO')).toBeFalse();
+      expect(fatias.length).toBe(2);
+    });
+
+    it('salvarTaxa em modo ativo individual atualiza a posição sem truncar todasPosicoes', async () => {
+      store.ativoId.set(1);
+      store.posicao.set(fakeLotesResp.posicoes[0]);
+      store.todasPosicoes.set([fakeLotesResp.posicoes[0], fakePosicao2]);
+
+      const updatedPos1: PosicaoRendaFixa = {
+        ...fakeLotesResp.posicoes[0],
+        lotes: [
+          {
+            ...fakeLotesResp.posicoes[0].lotes[0],
+            taxa_contratada: '7.50',
+          },
+          ...fakeLotesResp.posicoes[0].lotes.slice(1),
+        ],
+      };
+
+      const p = store.salvarTaxa(1, 7.50);
+
+      const reqPatch = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/transacoes/1/taxa');
+      expect(reqPatch.request.method).toBe('PATCH');
+      reqPatch.flush({ id: 1, taxa_contratada: '7.50' });
+      await Promise.resolve();
+
+      const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=1');
+      reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-05T00:00:00Z', posicoes: [updatedPos1] });
+
+      await p;
+      // Posicao 1 foi atualizada
+      expect(store.posicao()?.lotes[0].taxa_contratada).toBe('7.50');
+      // todasPosicoes AINDA contém ambas as posições (não foi truncada para 1!)
+      expect(store.todasPosicoes().length).toBe(2);
+      expect(store.todasPosicoes().some((p) => p.ativo.id === 2)).toBeTrue();
+    });
+  });
 });
+
 
 

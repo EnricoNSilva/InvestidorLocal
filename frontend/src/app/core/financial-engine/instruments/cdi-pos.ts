@@ -14,6 +14,14 @@ export interface CdiInstrumentMeta {
   defaultPctCdi?: number;
 }
 
+export function round8(val: number): number {
+  return Math.round((val + 1e-15) * 1e8) / 1e8;
+}
+
+export function trunc8(val: number): number {
+  return Math.floor((val + 1e-14) * 1e8) / 1e8;
+}
+
 export function calcCdiFactor(du: number, cdiAnualDec: number, pctCdi: number): number {
   if (du <= 0) return 1.0;
   const dailyCdi = Math.pow(1 + cdiAnualDec, 1 / 252) - 1;
@@ -51,6 +59,29 @@ export function createCdiInstrument(meta: CdiInstrumentMeta): FixedIncomeInstrum
 
     // CDI_POS (% do CDI): lot.rate guarda ex.: 110 para 110% do CDI
     const pct = Number(lot.rate) || meta.defaultPctCdi || 100;
+
+    // Se a série histórica diária da B3/BCB (Série 12) estiver disponível no contexto,
+    // aplica a fórmula oficial do Caderno de Fórmulas da B3/CETIP (fator C com 8 casas decimais
+    // e PU truncado em 8 casas decimais) para o período passado e projeta apenas dias futuros.
+    if (ctx.cdiHistorico && ctx.cdiHistorico.size > 0 && effectiveT > lotDN) {
+      const maxHist = ctx.maxCdiHistDN ?? effectiveT;
+      const histEndDN = Math.min(effectiveT, maxHist + 1);
+      let c = 1.0;
+      for (let d = lotDN; d < histEndDN; d++) {
+        const tdiPct = ctx.cdiHistorico.get(d);
+        if (tdiPct !== undefined) {
+          const factorDia = 1 + (tdiPct / 100) * (pct / 100);
+          c = round8(c * factorDia);
+        }
+      }
+      const puHist = trunc8(lot.price * c);
+      if (effectiveT <= maxHist + 1) {
+        return puHist;
+      }
+      const duFuture = Math.max(0, getBusDays(maxHist + 1, effectiveT));
+      return puHist * calcCdiFactor(duFuture, baseRate, pct);
+    }
+
     return lot.price * calcCdiFactor(du, baseRate, pct);
   }
 

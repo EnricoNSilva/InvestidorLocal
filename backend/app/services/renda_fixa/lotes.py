@@ -31,6 +31,7 @@ class _LoteMutavel:
     taxa_unitaria_brl: Decimal  # taxas / quantidade_original (rateio na baixa parcial)
     quantidade_original: Decimal
     quantidade_aberta: Decimal
+    taxas: Decimal
     custo_conhecido: bool       # False em TRANSFERENCIA_ENTRADA com PU 0
 
 
@@ -77,7 +78,14 @@ def extrair_lotes_abertos(db: Session, carteira_id: int, ativo_id: Optional[int]
 
     posicoes: List[PosicaoRendaFixaRead] = []
 
+    def _tx_sort_key(t: Transacao):
+        dt = t.data_hora
+        if dt is not None and dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return (dt or datetime.min, 0 if t.tipo_operacao in TIPOS_ENTRADA else 1, t.id or 0)
+
     for at_id, lista_tx in tx_por_ativo.items():
+        lista_tx.sort(key=_tx_sort_key)
         ativo = ativos_map[at_id]
         lotes_queue: deque[_LoteMutavel] = deque()
         fluxos: List[FluxoRecebidoRead] = []
@@ -101,6 +109,7 @@ def extrair_lotes_abertos(db: Session, carteira_id: int, ativo_id: Optional[int]
                     taxa_unitaria_brl=taxa_unitaria,
                     quantidade_original=tx.quantidade,
                     quantidade_aberta=tx.quantidade,
+                    taxas=tx.taxas or ZERO,
                     custo_conhecido=custo_conhecido,
                 )
                 lotes_queue.append(lote)
@@ -165,6 +174,7 @@ def extrair_lotes_abertos(db: Session, carteira_id: int, ativo_id: Optional[int]
                     quantidade_original=lote.quantidade_original,
                     quantidade_aberta=lote.quantidade_aberta,
                     custo_aberto_brl=custo_aberto,
+                    taxas=lote.taxas,
                     custo_conhecido=lote.custo_conhecido,
                 )
             )

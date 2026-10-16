@@ -3,6 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   AtivoRendaFixa,
+  AtivoRendaFixaUpdateDto,
   CadastroManualRendaFixaDto,
   CotacaoTesouroResponse,
   DetalhesRendaFixa,
@@ -10,6 +11,7 @@ import {
   EnvelopeMercado,
   Indexador,
   LoteManualCreateDto,
+  LoteManualUpdateDto,
   LotesRendaFixaResponse,
   MacroResponse,
   PosicaoRendaFixa,
@@ -79,4 +81,22 @@ export class RendaFixaApiService {
   adicionarLoteManual(ativoId: number, payload: LoteManualCreateDto): Observable<PosicaoRendaFixa> {
     return this.http.post<PosicaoRendaFixa>(`${this.baseUrl}/ativos/${ativoId}/lotes`, payload);
   }
+
+  atualizarTituloRf(ativoId: number, payload: AtivoRendaFixaUpdateDto, carteiraId: number = 1): Observable<PosicaoRendaFixa> {
+    const params = new HttpParams().set('carteira_id', carteiraId.toString());
+    return this.http.put<PosicaoRendaFixa>(`${this.baseUrl}/ativos/${ativoId}`, payload, { params });
+  }
+
+  excluirTituloRf(ativoId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/ativos/${ativoId}`);
+  }
+
+  atualizarLoteManual(transacaoId: number, payload: LoteManualUpdateDto): Observable<PosicaoRendaFixa> {
+    return this.http.put<PosicaoRendaFixa>(`${this.baseUrl}/lotes/${transacaoId}`, payload);
+  }
+
+  excluirLoteManual(transacaoId: number): Observable<PosicaoRendaFixa> {
+    return this.http.delete<PosicaoRendaFixa>(`${this.baseUrl}/lotes/${transacaoId}`);
+  }
 }
+

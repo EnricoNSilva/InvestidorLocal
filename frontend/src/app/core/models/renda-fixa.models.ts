@@ -49,6 +49,7 @@ export interface LoteAbertoDto {
   quantidade_original: string | number;
   quantidade_aberta: string | number;
   custo_aberto_brl: string | number;
+  taxas?: string | number;
   custo_conhecido: boolean;
 }
 
@@ -82,12 +83,18 @@ export interface EnvelopeMercado<T = any> {
   dados: T;
 }
 
+export interface PontoDiarioMacroDto {
+  data: string; // 'AAAA-MM-DD'
+  valor: string | number; // taxa diária em % (ex.: 0.055131)
+}
+
 export interface SerieMacroRead {
   codigo: number;
   nome: string;
   ultima_data: string;
   valor_bruto: string | number;
   valor_anualizado_pct: string | number;
+  historico_diario?: PontoDiarioMacroDto[] | null;
 }
 
 export interface MacroResponse {
@@ -131,6 +138,24 @@ export interface DetalhesRendaFixaUpsert {
   cobra_custodia_b3?: boolean;
   carencia_dias?: number | null;
   codigo_mercado?: string | null;
+}
+
+export type DetalhesRendaFixaUpsertDto = DetalhesRendaFixaUpsert;
+
+export type ModalMode = 'NOVO_TITULO' | 'NOVO_APORTE' | 'EDITAR_TITULO' | 'EDITAR_LOTE';
+
+export interface LoteManualUpdateDto {
+  data_compra: string;
+  quantidade: number | string;
+  preco_unitario: number | string;
+  taxa_contratada: number | string;
+  taxas?: number | string;
+}
+
+export interface AtivoRendaFixaUpdateDto {
+  ticker?: string | null;
+  nome: string;
+  detalhes: DetalhesRendaFixaUpsert;
 }
 
 export interface CotacaoTesouroItem {
@@ -188,6 +213,12 @@ export interface AllocationSlice {
   label: string;
   value: number;
   pct: number;
+}
+
+export type AllocationMode = 'indexador' | 'lote' | 'titulo';
+
+export interface LoteComAtivoDto extends LoteAbertoDto {
+  ativo: AtivoRendaFixa;
 }
 
 export function toEngineLot(l: LoteAbertoDto): EngineLot | null {

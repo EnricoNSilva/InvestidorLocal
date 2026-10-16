@@ -43,6 +43,8 @@ export interface SellPart {
   irApp: number;
   liqReal: number; // custódia abatida da base do IR (valor que entra na conta)
   liqApp: number; // regra do app oficial (IR sobre ganho bruto, sem abater custódia)
+  ativo?: any;
+  instrument?: any;
 }
 
 export interface SellResult {

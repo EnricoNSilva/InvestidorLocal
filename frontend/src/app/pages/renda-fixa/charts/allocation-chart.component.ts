@@ -11,12 +11,13 @@ import {
   viewChild,
 } from '@angular/core';
 import { Chart, ChartConfiguration } from 'chart.js';
-import { AllocationSlice } from '../../../core/models/renda-fixa.models';
+import { AllocationMode, AllocationSlice } from '../../../core/models/renda-fixa.models';
 import { registerCharts } from './chart-registry';
 import { chartTheme } from './chart-theme';
 
 export const ALLOCATION_PALETTE = {
   ipca: '#3b82f6',
+  cdi: '#06b6d4',
   selic: '#10b981',
   prefixado: '#f59e0b',
   lots: [
@@ -31,7 +32,7 @@ export const ALLOCATION_PALETTE = {
   ],
 };
 
-export function getSliceColors(slices: AllocationSlice[], mode: 'indexador' | 'lote'): string[] {
+export function getSliceColors(slices: AllocationSlice[], mode: AllocationMode = 'indexador'): string[] {
   if (slices.length === 1 && slices[0].label === 'Sem Ativos') {
     return ['#64748b'];
   }
@@ -40,6 +41,7 @@ export function getSliceColors(slices: AllocationSlice[], mode: 'indexador' | 'l
       const l = s.label.toLowerCase();
       if (l.includes('selic')) return ALLOCATION_PALETTE.selic;
       if (l.includes('prefixado')) return ALLOCATION_PALETTE.prefixado;
+      if (l.includes('cdi')) return ALLOCATION_PALETTE.cdi;
       return ALLOCATION_PALETTE.ipca;
     });
   }
@@ -50,7 +52,7 @@ export function getSliceColors(slices: AllocationSlice[], mode: 'indexador' | 'l
 
 export function buildAllocationConfig(
   slices: AllocationSlice[],
-  mode: 'indexador' | 'lote' = 'indexador',
+  mode: AllocationMode = 'indexador',
   theme = chartTheme()
 ): ChartConfiguration<'doughnut'> {
   const labels = slices.map((s) => s.label);
@@ -131,7 +133,7 @@ export function buildAllocationConfig(
 })
 export class AllocationChartComponent {
   readonly slices = input.required<AllocationSlice[]>();
-  readonly mode = input<'indexador' | 'lote'>('indexador');
+  readonly mode = input<AllocationMode>('indexador');
   readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('cv');
   private readonly zone = inject(NgZone);
   chart?: Chart<'doughnut'>;

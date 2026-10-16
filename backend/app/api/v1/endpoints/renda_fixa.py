@@ -4,29 +4,32 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.models.ativo import Ativo
 from app.models.enums import Indexador, TipoAtivo, TipoOperacao
+from app.models.posicao import PosicaoConsolidada
 from app.models.renda_fixa import DetalhesRendaFixa
 from app.models.transacao import Transacao
 from app.schemas.renda_fixa import (
     AtivoRendaFixaRead,
+    AtivoRendaFixaUpdate,
     CadastroManualRendaFixaRequest,
     CotacaoTesouroResponse,
     DetalhesRendaFixaRead,
     DetalhesRendaFixaUpsert,
     EnvelopeMercado,
     LoteManualCreate,
+    LoteManualUpdate,
     LotesRendaFixaResponse,
     MacroResponse,
     PosicaoRendaFixaRead,
     TaxaContratadaPatch,
 )
 from app.schemas.transacao import TransacaoCreate, TransacaoRead
-from app.services.portfolio import PortfolioError, processar_transacao
+from app.services.portfolio import PortfolioError, processar_transacao, recalcular_posicoes_carteira
 from app.services.renda_fixa.lotes import extrair_lotes_abertos
 from app.services.renda_fixa.mercado import obter_cotacoes_tesouro, obter_dados_macro
 
@@ -75,6 +78,88 @@ def upsert_detalhes_rf(
     db.commit()
     db.refresh(detalhes)
     return DetalhesRendaFixaRead.model_validate(detalhes)
+
+
+@router.put(
+    "/ativos/{ativo_id}",
+    response_model=PosicaoRendaFixaRead,
+    summary="Atualizar dados cadastrais e detalhes de um ativo de Renda Fixa",
+)
+def atualizar_ativo_rf(
+    ativo_id: int,
+    payload: AtivoRendaFixaUpdate,
+    carteira_id: int = Query(1, description="ID da carteira"),
+    db: Session = Depends(get_db),
+):
+    ativo = db.query(Ativo).filter(Ativo.id == ativo_id).first()
+    if not ativo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ativo ID {ativo_id} não encontrado")
+    if ativo.tipo != TipoAtivo.RendaFixa:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Operação permitida exclusivamente para ativos do tipo RendaFixa",
+        )
+
+    if payload.ticker and payload.ticker.strip():
+        novo_ticker = payload.ticker.strip().upper()
+        conflito = (
+            db.query(Ativo)
+            .filter(Ativo.ticker == novo_ticker, Ativo.id != ativo_id)
+            .first()
+        )
+        if conflito:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ticker '{novo_ticker}' já pertence a outro ativo",
+            )
+        ativo.ticker = novo_ticker
+
+    ativo.nome = payload.nome.strip()
+
+    dados = payload.detalhes.model_dump()
+    if ativo.detalhes_rf:
+        for k, v in dados.items():
+            setattr(ativo.detalhes_rf, k, v)
+    else:
+        detalhes = DetalhesRendaFixa(ativo_id=ativo.id, **dados)
+        db.add(detalhes)
+        ativo.detalhes_rf = detalhes
+
+    db.commit()
+    db.refresh(ativo)
+
+    posicoes = extrair_lotes_abertos(db=db, carteira_id=carteira_id, ativo_id=ativo.id)
+    if not posicoes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Posição não encontrada")
+    return posicoes[0]
+
+
+@router.delete(
+    "/ativos/{ativo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir ativo de Renda Fixa em cascata",
+)
+def excluir_ativo_rf(
+    ativo_id: int,
+    db: Session = Depends(get_db),
+):
+    ativo = db.query(Ativo).filter(Ativo.id == ativo_id).first()
+    if not ativo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ativo ID {ativo_id} não encontrado")
+    if ativo.tipo != TipoAtivo.RendaFixa:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Operação permitida exclusivamente para ativos do tipo RendaFixa",
+        )
+
+    db.query(PosicaoConsolidada).filter(PosicaoConsolidada.ativo_id == ativo_id).delete()
+    db.query(Transacao).filter(Transacao.ativo_id == ativo_id).delete()
+    if ativo.detalhes_rf:
+        db.delete(ativo.detalhes_rf)
+    db.delete(ativo)
+    db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
@@ -219,6 +304,75 @@ def obter_lotes_peps(
         gerado_em=datetime.now(timezone.utc),
         posicoes=posicoes,
     )
+
+
+@router.put(
+    "/lotes/{transacao_id}",
+    response_model=PosicaoRendaFixaRead,
+    summary="Atualizar dados de um lote de Renda Fixa",
+)
+def atualizar_lote_manual(
+    transacao_id: int,
+    payload: LoteManualUpdate,
+    db: Session = Depends(get_db),
+):
+    tx = db.query(Transacao).filter(Transacao.id == transacao_id).first()
+    if not tx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Transação ID {transacao_id} não encontrada")
+    if not tx.ativo or tx.ativo.tipo != TipoAtivo.RendaFixa:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Operação permitida exclusivamente para ativos do tipo RendaFixa",
+        )
+
+    tx.data_hora = datetime.combine(payload.data_compra, datetime.min.time(), tzinfo=timezone.utc)
+    tx.quantidade = payload.quantidade
+    tx.preco_unitario = payload.preco_unitario
+    tx.taxa_contratada = payload.taxa_contratada
+    tx.taxas = payload.taxas or Decimal("0")
+
+    carteira_id = tx.carteira_id
+    ativo_id = tx.ativo_id
+
+    db.flush()
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira_id)
+
+    posicoes = extrair_lotes_abertos(db=db, carteira_id=carteira_id, ativo_id=ativo_id)
+    if not posicoes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Posição não encontrada")
+    return posicoes[0]
+
+
+@router.delete(
+    "/lotes/{transacao_id}",
+    response_model=PosicaoRendaFixaRead,
+    summary="Excluir lote de Renda Fixa",
+)
+def excluir_lote_manual(
+    transacao_id: int,
+    db: Session = Depends(get_db),
+):
+    tx = db.query(Transacao).filter(Transacao.id == transacao_id).first()
+    if not tx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Transação ID {transacao_id} não encontrada")
+    if not tx.ativo or tx.ativo.tipo != TipoAtivo.RendaFixa:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Operação permitida exclusivamente para ativos do tipo RendaFixa",
+        )
+
+    carteira_id = tx.carteira_id
+    ativo_id = tx.ativo_id
+
+    db.delete(tx)
+    db.flush()
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira_id)
+
+    posicoes = extrair_lotes_abertos(db=db, carteira_id=carteira_id, ativo_id=ativo_id)
+    if not posicoes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Posição não encontrada")
+    return posicoes[0]
+
 
 
 @router.patch("/transacoes/{transacao_id}/taxa", response_model=TransacaoRead, summary="Atualizar taxa contratada de um lote")

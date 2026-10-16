@@ -5,25 +5,34 @@
       <div class="titles">
         <div class="title-row">
           <h1>
-            {{ store.posicao()?.ativo?.nome || store.posicao()?.ativo?.ticker || 'Tesouro RENDA+ 2065' }}
+            @if (store.isCarteiraCompleta() || store.ativos().length === 0) {
+              Carteira Consolidada de Renda Fixa
+            } @else {
+              {{ store.posicao()?.ativo?.nome || store.posicao()?.ativo?.ticker || 'Tesouro RENDA+ 2065' }}
+            }
           </h1>
           <div class="badge-group">
-            @if (store.posicao()?.ativo?.detalhes_rf?.isento_ir) {
-              <span class="badge-tag badge-tax-free">ISENTO DE IR</span>
-            }
-            @if (store.posicao()?.ativo?.detalhes_rf?.cobra_custodia_b3 === false) {
-              <span class="badge-tag badge-no-custody">SEM CUSTÓDIA B3</span>
-            }
-            @if (store.posicao()?.ativo?.detalhes_rf?.data_vencimento) {
-              <span class="badge-tag badge-maturity">VENCIMENTO: {{ formatDate(store.posicao()?.ativo?.detalhes_rf?.data_vencimento) }}</span>
-            } @else if (store.posicao()?.ativo?.detalhes_rf?.ano_conversao) {
-              <span class="badge-title">Conversão {{ store.posicao()?.ativo?.detalhes_rf?.ano_conversao }}</span>
+            @if (store.isCarteiraCompleta() || store.ativos().length === 0) {
+              <span class="badge-tag badge-tax-free">{{ store.totalTitulos() }} TÍTULOS</span>
+              <span class="badge-tag badge-maturity">{{ store.totalLotesAtivos() }} LOTES ATIVOS</span>
+            } @else {
+              @if (store.posicao()?.ativo?.detalhes_rf?.isento_ir) {
+                <span class="badge-tag badge-tax-free">ISENTO DE IR</span>
+              }
+              @if (store.posicao()?.ativo?.detalhes_rf?.cobra_custodia_b3 === false) {
+                <span class="badge-tag badge-no-custody">SEM CUSTÓDIA B3</span>
+              }
+              @if (store.posicao()?.ativo?.detalhes_rf?.data_vencimento) {
+                <span class="badge-tag badge-maturity">VENCIMENTO: {{ formatDate(store.posicao()?.ativo?.detalhes_rf?.data_vencimento) }}</span>
+              } @else if (store.posicao()?.ativo?.detalhes_rf?.ano_conversao) {
+                <span class="badge-title">Conversão {{ store.posicao()?.ativo?.detalhes_rf?.ano_conversao }}</span>
+              }
             }
           </div>
         </div>
 
         <div class="actions-row">
-          @if (store.ativos().length > 1) {
+          @if (store.ativos().length > 0) {
             <div class="ativo-selector">
               <label for="ativoSelect">Ativo:</label>
               <select
@@ -32,14 +41,46 @@
                 (ngModelChange)="onAtivoChange($event)"
                 class="ativo-select"
               >
+                <option [value]="0">📊 Carteira Completa (Todos os Ativos)</option>
                 @for (a of store.ativos(); track a.id) {
                   <option [value]="a.id">{{ a.ticker }} - {{ a.nome }}</option>
                 }
               </select>
             </div>
           }
+
+          @if (!store.isCarteiraCompleta() && store.posicao()?.ativo) {
+            @if (confirmandoExclusaoAtivo()) {
+              <div class="inline-confirm-box">
+                <span class="confirm-msg">Excluir título e todos os seus lotes?</span>
+                <button type="button" class="btn btn-sm btn-danger" (click)="confirmarExclusaoAtivo()">Confirmar Exclusão</button>
+                <button type="button" class="btn btn-sm btn-secondary" (click)="cancelarExclusaoAtivo()">Cancelar</button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary btn-edit-titulo"
+                (click)="openEditarTituloModal()"
+                title="Editar dados cadastrais deste título"
+              >
+                <span>✏️</span> Editar Título
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-danger btn-delete-titulo"
+                (click)="iniciarExclusaoAtivo()"
+                title="Excluir este título e todos os seus lotes"
+              >
+                <span>🗑️</span> Excluir Título
+              </button>
+            }
+          }
+
           <button class="btn btn-novo-rf" (click)="openNovoTituloModal()">
-            <span>➕</span> Novo Título / Aporte RF
+            <span>➕</span> Novo Título
+          </button>
+          <button class="btn btn-secondary btn-sm" [disabled]="store.ativos().length === 0" (click)="openNovoAporteModal()" title="Cadastrar novo aporte em um título">
+            <span>➕</span> Novo Aporte
           </button>
         </div>
       </div>
@@ -51,15 +92,20 @@
           <strong class="val">{{ fmtBRL(store.vendaHoje().liqApp) }}</strong>
         </div>
         <div class="stat-pill">
-          <span class="lbl">Taxa / Indexador:</span>
-          @if (store.instrument().kind === 'CDI_POS') {
-            <strong class="val pos">{{ store.posAvgRate() || store.posicao()?.ativo?.detalhes_rf?.percentual_indexador || 100 }}% do CDI</strong>
-          } @else if (store.instrument().kind === 'SELIC_POS') {
-            <strong class="val pos">Selic + {{ fmtPct(store.posAvgRate() / 100, 2) }}</strong>
-          } @else if (store.instrument().kind === 'PREFIXADO') {
-            <strong class="val pos">{{ fmtPct(store.posAvgRate() / 100, 2) }} a.a.</strong>
+          @if (store.isCarteiraCompleta()) {
+            <span class="lbl">Títulos Ativos:</span>
+            <strong class="val pos">{{ store.totalTitulos() }} ativos ({{ store.totalLotesAtivos() }} lotes)</strong>
           } @else {
-            <strong class="val pos">IPCA + {{ fmtPct(store.calib().rNow) }}</strong>
+            <span class="lbl">Taxa / Indexador:</span>
+            @if (store.instrument().kind === 'CDI_POS') {
+              <strong class="val pos">{{ store.posAvgRate() || store.posicao()?.ativo?.detalhes_rf?.percentual_indexador || 100 }}% do CDI</strong>
+            } @else if (store.instrument().kind === 'SELIC_POS') {
+              <strong class="val pos">Selic + {{ fmtPct(store.posAvgRate() / 100, 2) }}</strong>
+            } @else if (store.instrument().kind === 'PREFIXADO') {
+              <strong class="val pos">{{ fmtPct(store.posAvgRate() / 100, 2) }} a.a.</strong>
+            } @else {
+              <strong class="val pos">IPCA + {{ fmtPct(store.calib().rNow) }}</strong>
+            }
           }
         </div>
         <div class="stat-pill">
@@ -151,7 +197,12 @@
     }
   </main>
 
-  @if (showModal()) {
-    <app-novo-titulo-modal (close)="closeNovoTituloModal()"></app-novo-titulo-modal>
+  @if (store.modalState().open || showModal()) {
+    <app-novo-titulo-modal
+      [initialMode]="store.modalState().mode"
+      [editingAtivo]="store.modalState().ativo ?? store.posicao()?.ativo ?? null"
+      [editingLote]="store.modalState().lote ?? null"
+      (close)="closeNovoTituloModal()"
+    ></app-novo-titulo-modal>
   }
 </div>

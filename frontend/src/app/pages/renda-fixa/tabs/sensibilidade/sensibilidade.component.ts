@@ -46,6 +46,9 @@ export class SensibilidadeComponent {
 
   // Matriz de Cenários Futuros (Heatmap)
   readonly matrixData = computed(() => {
+    if (this.store.isCarteiraCompleta()) {
+      return { carryCells: [], rows: [] };
+    }
     const inst = this.store.instrument();
     const lots = this.store.lots();
     const maxSimDate = this.store.maxSimDate();
@@ -190,6 +193,9 @@ export class SensibilidadeComponent {
 
   // Tabela de Sensibilidade a Choques Imediatos ou de CDI
   readonly shockRows = computed(() => {
+    if (this.store.isCarteiraCompleta()) {
+      return [];
+    }
     const inst = this.store.instrument();
     if (inst.supportsMtM) {
       const c = this.store.calib();

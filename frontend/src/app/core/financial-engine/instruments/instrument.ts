@@ -23,6 +23,10 @@ export interface PricingContext {
   ipcaAnual?: number;
   /** Data base de referência (hoje) em DayNum. */
   refDN?: DayNum;
+  /** Mapa histórico diário da Série 12 do BCB (DayNum -> taxa diária em %, ex.: 0.055131). */
+  cdiHistorico?: ReadonlyMap<DayNum, number>;
+  /** Maior DayNum presente em cdiHistorico. */
+  maxCdiHistDN?: DayNum;
 }
 
 export interface FixedIncomeInstrument {

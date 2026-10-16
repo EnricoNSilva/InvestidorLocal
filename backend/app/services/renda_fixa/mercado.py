@@ -12,11 +12,16 @@ from app.schemas.renda_fixa import (
     CotacaoTesouroResponse,
     EnvelopeMercado,
     MacroResponse,
+    PontoDiarioMacro,
     SerieMacroRead,
 )
 
 BONDS_URL = "https://enriconsilva.github.io/Marcacaoamercado/bonds.json"
 SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados/ultimos/{n}?formato=json"
+SGS_RANGE_URL = (
+    "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados"
+    "?formato=json&dataInicial={data_inicial}&dataFinal={data_final}"
+)
 
 TTL_BONDS = timedelta(hours=1)
 TTL_MACRO = timedelta(hours=6)
@@ -217,21 +222,43 @@ async def fetch_macro_bcb(client: httpx.AsyncClient) -> MacroResponse:
         valor_anualizado_pct=anualizar_252(bruto_selic),
     )
 
-    # 3. CDI SGS 12 (último dia útil)
+    # 3. CDI SGS 12 (série histórica diária para capitalização B3/CETIP + último dia útil)
     cdi_read = None
     try:
-        r_cdi = await client.get(SGS_URL.format(codigo=12, n=1), timeout=10.0)
-        r_cdi.raise_for_status()
-        dados_cdi = r_cdi.json()
+        hoje = date.today()
+        ini = (hoje - timedelta(days=365 * 5)).strftime("%d/%m/%Y")
+        fim = hoje.strftime("%d/%m/%Y")
+        headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
+        try:
+            r_cdi = await client.get(
+                SGS_RANGE_URL.format(codigo=12, data_inicial=ini, data_final=fim),
+                headers=headers,
+                timeout=15.0,
+            )
+            r_cdi.raise_for_status()
+            dados_cdi = r_cdi.json()
+        except Exception:
+            r_cdi = await client.get(SGS_URL.format(codigo=12, n=1), headers=headers, timeout=10.0)
+            r_cdi.raise_for_status()
+            dados_cdi = r_cdi.json()
+
         if dados_cdi:
             dt_cdi = _parse_bcb_date(dados_cdi[-1]["data"])
             bruto_cdi = Decimal(str(dados_cdi[-1]["valor"]))
+            historico = [
+                PontoDiarioMacro(
+                    data=_parse_bcb_date(x["data"]),
+                    valor=Decimal(str(x["valor"])),
+                )
+                for x in dados_cdi
+            ]
             cdi_read = SerieMacroRead(
                 codigo=12,
                 nome="Taxa CDI",
                 ultima_data=dt_cdi,
                 valor_bruto=bruto_cdi,
                 valor_anualizado_pct=anualizar_252(bruto_cdi),
+                historico_diario=historico,
             )
     except Exception:
         pass

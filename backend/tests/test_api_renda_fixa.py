@@ -414,3 +414,392 @@ def test_cadastro_manual_sem_ticker_e_sem_emissor(client):
     assert Decimal(str(data["quantidade_total"])) == Decimal("2.00000000")
 
 
+def test_crud_ativo_renda_fixa(client):
+    # 1. Cria ativo RF
+    res1 = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "CDB-TEST-20270101",
+        "nome": "CDB Banco Teste 100% CDI",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "100.0000",
+            "emissor": "Banco Teste",
+            "data_vencimento": "2027-01-01",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2025-01-01",
+            "quantidade": "5.0",
+            "preco_unitario": "1000.0",
+            "taxa_contratada": "100.0",
+            "taxas": "0.0",
+        },
+    })
+    assert res1.status_code == 201, res1.text
+    ativo_id = res1.json()["ativo"]["id"]
+
+    # 2. Cria outro ativo RF para teste de conflito de ticker
+    res2 = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "LCI-OTHER-20261231",
+        "nome": "LCI Outro Banco 90% CDI",
+        "detalhes": {
+            "produto": "LCI",
+            "indexador": "CDI",
+            "percentual_indexador": "90.0000",
+            "emissor": "Outro Banco",
+            "data_vencimento": "2026-12-31",
+        },
+    })
+    assert res2.status_code == 201, res2.text
+
+    # 3. PUT em ativo inexistente -> 404
+    res_404 = client.put("/api/v1/renda-fixa/ativos/99999", json={
+        "ticker": "CDB-NOVO",
+        "nome": "Novo Nome",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "emissor": "Banco",
+        },
+    })
+    assert res_404.status_code == 404
+
+    # 4. PUT tentando usar ticker do outro ativo -> 409
+    res_409 = client.put(f"/api/v1/renda-fixa/ativos/{ativo_id}", json={
+        "ticker": "LCI-OTHER-20261231",
+        "nome": "Tentativa Ticker Conflitante",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "emissor": "Banco Teste",
+        },
+    })
+    assert res_409.status_code == 409
+
+    # 5. PUT bem sucedido atualizando ticker, nome e detalhes
+    res_up = client.put(f"/api/v1/renda-fixa/ativos/{ativo_id}", json={
+        "ticker": "CDB-TEST-UPDATED-2027",
+        "nome": "CDB Banco Teste Atualizado 115% CDI",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "115.0000",
+            "emissor": "Banco Teste S.A.",
+            "data_vencimento": "2027-06-30",
+        },
+    })
+    assert res_up.status_code == 200, res_up.text
+    data_up = res_up.json()
+    assert data_up["ativo"]["ticker"] == "CDB-TEST-UPDATED-2027"
+    assert data_up["ativo"]["nome"] == "CDB Banco Teste Atualizado 115% CDI"
+    assert data_up["ativo"]["detalhes_rf"]["emissor"] == "Banco Teste S.A."
+    assert Decimal(str(data_up["ativo"]["detalhes_rf"]["percentual_indexador"])) == Decimal("115.0000")
+    assert len(data_up["lotes"]) == 1
+
+
+def test_crud_lote_renda_fixa_e_sincronia_cmpm_peps(client):
+    # 1. Cria ativo RF com lote inicial: 10 @ 1000 = 10000
+    res_ativo = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "CDB-SINCRONIA-2028",
+        "nome": "CDB Sincronia CMPM e PEPS",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "110.0000",
+            "emissor": "Banco Sincronia",
+            "data_vencimento": "2028-12-31",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2025-01-10",
+            "quantidade": "10.0",
+            "preco_unitario": "1000.0",
+            "taxa_contratada": "110.0",
+            "taxas": "0.0",
+        },
+    })
+    assert res_ativo.status_code == 201
+    ativo_id = res_ativo.json()["ativo"]["id"]
+    lote1_id = res_ativo.json()["lotes"][0]["transacao_id"]
+
+    # 2. Adiciona segundo lote: 5 @ 1100 + 50 de taxas = 5550. Total = 15550
+    res_lote2 = client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "carteira_id": 1,
+        "data_compra": "2025-02-10",
+        "quantidade": "5.0",
+        "preco_unitario": "1100.0",
+        "taxa_contratada": "112.0",
+        "taxas": "50.0",
+    })
+    assert res_lote2.status_code == 201
+    lote2_id = res_lote2.json()["lotes"][1]["transacao_id"]
+
+    # Valida PEPS e CMPM antes da edição
+    pos_cart = next(p for p in client.get("/api/v1/posicoes").json() if p["ativo_id"] == ativo_id)
+    assert Decimal(str(pos_cart["quantidade_saldo"])) == Decimal("15.0")
+    assert Decimal(str(pos_cart["custo_total_brl"])) == Decimal("15550.0")
+
+    # 3. Edita o segundo lote via PUT /lotes/{transacao_id}
+    # Altera para: 8 @ 1200 + 0 taxas = 9600. Novo total: 10000 + 9600 = 19600, qtd = 18.0
+    res_edit_lote2 = client.put(f"/api/v1/renda-fixa/lotes/{lote2_id}", json={
+        "data_compra": "2025-02-15",
+        "quantidade": "8.0",
+        "preco_unitario": "1200.0",
+        "taxa_contratada": "125.0",
+        "taxas": "0.0",
+    })
+    assert res_edit_lote2.status_code == 200, res_edit_lote2.text
+    peps_pos = res_edit_lote2.json()
+    assert Decimal(str(peps_pos["quantidade_total"])) == Decimal("18.0")
+    assert Decimal(str(peps_pos["custo_total_brl"])) == Decimal("19600.0")
+
+    # Sincronia contábil com CMPM (/posicoes)
+    pos_cart_pos = next(p for p in client.get("/api/v1/posicoes").json() if p["ativo_id"] == ativo_id)
+    assert Decimal(str(pos_cart_pos["quantidade_saldo"])) == Decimal("18.0")
+    assert Decimal(str(pos_cart_pos["custo_total_brl"])) == Decimal("19600.0")
+    assert abs(Decimal(str(pos_cart_pos["preco_medio_brl"])) - (Decimal("19600.0") / Decimal("18.0"))) < Decimal("0.0001")
+
+    # 4. Exclui o segundo lote via DELETE /lotes/{transacao_id}
+    res_del_lote2 = client.delete(f"/api/v1/renda-fixa/lotes/{lote2_id}")
+    assert res_del_lote2.status_code == 200
+    peps_pos_pos_del = res_del_lote2.json()
+    assert len(peps_pos_pos_del["lotes"]) == 1
+    assert Decimal(str(peps_pos_pos_del["quantidade_total"])) == Decimal("10.0")
+    assert Decimal(str(peps_pos_pos_del["custo_total_brl"])) == Decimal("10000.0")
+
+    # Verifica CMPM após exclusão do segundo lote
+    pos_cart_del = next(p for p in client.get("/api/v1/posicoes").json() if p["ativo_id"] == ativo_id)
+    assert Decimal(str(pos_cart_del["quantidade_saldo"])) == Decimal("10.0")
+    assert Decimal(str(pos_cart_del["custo_total_brl"])) == Decimal("10000.0")
+    assert Decimal(str(pos_cart_del["preco_medio_brl"])) == Decimal("1000.0")
+
+    # 5. Exclui o primeiro lote (agora não restam lotes)
+    res_del_lote1 = client.delete(f"/api/v1/renda-fixa/lotes/{lote1_id}")
+    assert res_del_lote1.status_code == 200
+    peps_pos_vazia = res_del_lote1.json()
+    assert peps_pos_vazia["lotes"] == []
+    assert Decimal(str(peps_pos_vazia["quantidade_total"])) == Decimal("0")
+    assert Decimal(str(peps_pos_vazia["custo_total_brl"])) == Decimal("0")
+
+    # Verifica CMPM: a posição consolidada deste ativo deve ter sido excluída
+    pos_cart_restantes = [p for p in client.get("/api/v1/posicoes").json() if p["ativo_id"] == ativo_id]
+    assert len(pos_cart_restantes) == 0
+
+    # 6. Testes de erro 404
+    res_err_put = client.put("/api/v1/renda-fixa/lotes/99999", json={
+        "data_compra": "2025-01-01",
+        "quantidade": "1.0",
+        "preco_unitario": "100.0",
+        "taxa_contratada": "100.0",
+    })
+    assert res_err_put.status_code == 404
+
+    res_err_del = client.delete("/api/v1/renda-fixa/lotes/99999")
+    assert res_err_del.status_code == 404
+
+
+def test_exclusao_ativo_em_cascata(client):
+    # 1. Cria ativo RF com 2 lotes
+    res = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "CDB-CASCATA-2029",
+        "nome": "CDB Cascata Teste",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "100.0000",
+            "emissor": "Banco Cascata",
+            "data_vencimento": "2029-01-01",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2025-01-01",
+            "quantidade": "10.0",
+            "preco_unitario": "1000.0",
+            "taxa_contratada": "100.0",
+        },
+    })
+    assert res.status_code == 201
+    ativo_id = res.json()["ativo"]["id"]
+
+    client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "carteira_id": 1,
+        "data_compra": "2025-02-01",
+        "quantidade": "5.0",
+        "preco_unitario": "1000.0",
+        "taxa_contratada": "100.0",
+    })
+
+    # Confirma existência
+    assert any(a["id"] == ativo_id for a in client.get("/api/v1/renda-fixa/ativos").json())
+    assert any(p["ativo_id"] == ativo_id for p in client.get("/api/v1/posicoes").json())
+
+    # 2. Exclui ativo via DELETE /ativos/{ativo_id}
+    res_del = client.delete(f"/api/v1/renda-fixa/ativos/{ativo_id}")
+    assert res_del.status_code == 204
+
+    # 3. Confirma remoção completa
+    assert not any(a["id"] == ativo_id for a in client.get("/api/v1/renda-fixa/ativos").json())
+    assert not any(p["ativo_id"] == ativo_id for p in client.get("/api/v1/posicoes").json())
+    res_peps = client.get(f"/api/v1/renda-fixa/lotes?ativo_id={ativo_id}")
+    assert len(res_peps.json()["posicoes"]) == 0
+
+    # 4. Tentar excluir novamente -> 404
+    res_del_404 = client.delete(f"/api/v1/renda-fixa/ativos/{ativo_id}")
+    assert res_del_404.status_code == 404
+
+
+def test_timezone_safe_sorting_recalcular_posicoes(client, db_session):
+    from app.models.ativo import Ativo
+    from app.models.carteira import Carteira
+    from app.models.transacao import Transacao
+    from app.services.portfolio import recalcular_posicoes_carteira
+
+    carteira = Carteira(id=1, nome="Carteira Principal")
+    db_session.add(carteira)
+    db_session.flush()
+
+    # Cria ativo
+    ativo = Ativo(ticker="TZ-SAFE-TEST", nome="Ativo Timezone Safe", tipo=TipoAtivo.RendaFixa)
+    db_session.add(ativo)
+    db_session.flush()
+
+    # Cria transação 1 com timezone (aware)
+    tx1 = Transacao(
+        carteira_id=1,
+        ativo_id=ativo.id,
+        data_hora=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.BUY,
+        quantidade=Decimal("10"),
+        preco_unitario=Decimal("100"),
+        taxas=Decimal("0"),
+        moeda="BRL",
+    )
+    # Cria transação 2 sem timezone (naive)
+    tx2 = Transacao(
+        carteira_id=1,
+        ativo_id=ativo.id,
+        data_hora=datetime(2024, 1, 2, 10, 0),
+        tipo_operacao=TipoOperacao.BUY,
+        quantidade=Decimal("5"),
+        preco_unitario=Decimal("110"),
+        taxas=Decimal("0"),
+        moeda="BRL",
+    )
+    db_session.add_all([tx1, tx2])
+    db_session.commit()
+
+    # Executa recalcular_posicoes_carteira; não deve lançar TypeError
+    recalcular_posicoes_carteira(db=db_session, carteira_id=1)
+
+
+def test_editar_lote_reordenacao_cronologica_peps_e_preservacao_taxas(client):
+    # 1. Cria ativo RF com lote 1 em 2025-02-01 com taxas de R$ 25,00
+    res_ativo = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "CDB-PEPS-REORDER",
+        "nome": "CDB Reordenacao PEPS",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "100.0000",
+            "emissor": "Banco Reorder",
+            "data_vencimento": "2028-12-31",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2025-02-01",
+            "quantidade": "10.0",
+            "preco_unitario": "1000.0",
+            "taxa_contratada": "100.0",
+            "taxas": "25.0",
+        },
+    })
+    assert res_ativo.status_code == 201
+    ativo_id = res_ativo.json()["ativo"]["id"]
+    lote1_id = res_ativo.json()["lotes"][0]["transacao_id"]
+    assert Decimal(str(res_ativo.json()["lotes"][0]["taxas"])) == Decimal("25.0")
+
+    # 2. Adiciona segundo lote em 2025-03-01 com taxas de R$ 15,00
+    res_lote2 = client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "carteira_id": 1,
+        "data_compra": "2025-03-01",
+        "quantidade": "5.0",
+        "preco_unitario": "1100.0",
+        "taxa_contratada": "105.0",
+        "taxas": "15.0",
+    })
+    assert res_lote2.status_code == 201
+    lote2_id = res_lote2.json()["lotes"][1]["transacao_id"]
+    assert Decimal(str(res_lote2.json()["lotes"][1]["taxas"])) == Decimal("15.0")
+
+    # Ordem inicial no PEPS: Lote 1 (2025-02-01), depois Lote 2 (2025-03-01)
+    lotes_peps = res_lote2.json()["lotes"]
+    assert lotes_peps[0]["transacao_id"] == lote1_id
+    assert lotes_peps[1]["transacao_id"] == lote2_id
+
+    # 3. Edita lote 2 alterando data para 2025-01-15 (ANTERIOR ao lote 1) e preservando taxas de R$ 15,00
+    res_edit = client.put(f"/api/v1/renda-fixa/lotes/{lote2_id}", json={
+        "data_compra": "2025-01-15",
+        "quantidade": "5.0",
+        "preco_unitario": "1100.0",
+        "taxa_contratada": "105.0",
+        "taxas": "15.0",
+    })
+    assert res_edit.status_code == 200, res_edit.text
+    lotes_reordenados = res_edit.json()["lotes"]
+
+    # Agora o Lote 2 deve ser o PRIMEIRO na fila PEPS!
+    assert lotes_reordenados[0]["transacao_id"] == lote2_id
+    assert lotes_reordenados[0]["data_compra"] == "2025-01-15"
+    assert Decimal(str(lotes_reordenados[0]["taxas"])) == Decimal("15.0")
+
+    assert lotes_reordenados[1]["transacao_id"] == lote1_id
+    assert lotes_reordenados[1]["data_compra"] == "2025-02-01"
+    assert Decimal(str(lotes_reordenados[1]["taxas"])) == Decimal("25.0")
+
+
+def test_editar_ativo_renda_mais_com_ano_conversao(client):
+    # 1. Cadastra Tesouro RendA+ 2065
+    res_rm = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "NTNB-RENDA-2065",
+        "nome": "Tesouro RendA+ 2065 Original",
+        "detalhes": {
+            "produto": "TESOURO_RENDA_MAIS",
+            "indexador": "IPCA",
+            "emissor": "Tesouro Nacional",
+            "ano_conversao": 2065,
+            "num_parcelas": 240,
+            "dia_pagamento": 15,
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2025-01-10",
+            "quantidade": "1.0",
+            "preco_unitario": "2000.0",
+            "taxa_contratada": "6.5",
+        },
+    })
+    assert res_rm.status_code == 201
+    ativo_id = res_rm.json()["ativo"]["id"]
+
+    # 2. Edita nome e ticker mantendo ano_conversao e num_parcelas
+    res_up = client.put(f"/api/v1/renda-fixa/ativos/{ativo_id}", json={
+        "ticker": "NTNB-RENDA-2065-MOD",
+        "nome": "Tesouro RendA+ 2065 Modificado",
+        "detalhes": {
+            "produto": "TESOURO_RENDA_MAIS",
+            "indexador": "IPCA",
+            "emissor": "Tesouro Nacional",
+            "ano_conversao": 2065,
+            "num_parcelas": 240,
+            "dia_pagamento": 15,
+        },
+    })
+    assert res_up.status_code == 200, res_up.text
+    data_up = res_up.json()
+    assert data_up["ativo"]["nome"] == "Tesouro RendA+ 2065 Modificado"
+    assert data_up["ativo"]["ticker"] == "NTNB-RENDA-2065-MOD"
+    assert data_up["ativo"]["detalhes_rf"]["ano_conversao"] == 2065
+    assert data_up["ativo"]["detalhes_rf"]["num_parcelas"] == 240
+
+
+

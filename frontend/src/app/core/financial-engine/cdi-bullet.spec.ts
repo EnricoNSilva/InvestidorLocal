@@ -493,4 +493,51 @@ describe('Motor Financeiro - CDI Pós-Fixado e Bullet (§1 e §2 PLANO_CDI)', ()
       expect(resRealBruto.series.alvo[lastIdx]).toBeGreaterThan(0);
     });
   });
+
+  describe('6. Acumulação Diária Histórica B3/CETIP (cdiHistorico)', () => {
+    it('deve acumular o fator diário com arredondamento de 8 casas e truncar o PU em 8 casas (padrão B3/CETIP)', () => {
+      const dInicio = toDayNum('2025-12-19');
+      const dFim = toDayNum('2025-12-24'); // 19/12 (sex), 22/12 (seg), 23/12 (ter) -> 3 dias úteis
+      const cdiInst = createCdiInstrument({
+        vencimento: toDayNum('2028-12-19'),
+        isentoIr: false,
+        cobraCustodiaB3: false,
+      });
+
+      const hist = new Map<number, number>([
+        [toDayNum('2025-12-19'), 0.055131],
+        [toDayNum('2025-12-22'), 0.055131],
+        [toDayNum('2025-12-23'), 0.055131],
+      ]);
+
+      const loteBtg: EngineLot = {
+        id: 99,
+        date: '2025-12-19',
+        dn: dInicio,
+        rate: 100,
+        price: 0.01,
+        qty: 18836239,
+      };
+
+      const res = simulateSell({
+        lots: [loteBtg],
+        t: dFim,
+        instrument: cdiInst,
+        ctx: {
+          marketRate: 0,
+          cdiAnual: 0.1365,
+          cdiHistorico: hist,
+          maxCdiHistDN: toDayNum('2025-12-23'),
+        },
+      });
+
+      // c1 = round8(1 * 1.00055131) = 1.00055131
+      // c2 = round8(1.00055131 * 1.00055131) = 1.00110292
+      // c3 = round8(1.00110292 * 1.00055131) = 1.00165484
+      // pu = trunc8(0.01 * 1.00165484) = 0.01001654
+      expect(res.pu).toBe(0.01001654);
+      expect(res.bruto).toBe(188673.94);
+    });
+  });
 });
+

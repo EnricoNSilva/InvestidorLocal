@@ -1,3 +1,30 @@
+@if (store.isCarteiraCompleta()) {
+  <div class="card carteira-completa-guard">
+    <div class="guard-icon">🗺️</div>
+    <div class="guard-content">
+      <h3>Matriz de Sensibilidade e Estresse de Taxas</h3>
+      <p>
+        A análise de sensibilidade e cenários de estresse de taxa (choques de juros e curvas de permanência) exige a modelagem do fluxo de caixa e sensibilidade de um título específico.
+      </p>
+      @if (store.ativos().length > 0) {
+        <p class="select-hint">Selecione um título para visualizar as matrizes de sensibilidade:</p>
+        <div class="asset-chips">
+          @for (ativo of store.ativos(); track ativo.id) {
+            <button type="button" class="btn btn-secondary chip-ativo-btn" (click)="store.selecionarAtivo(ativo.id)">
+              <span class="chip-ticker">{{ ativo.ticker || ativo.nome }}</span>
+              <span class="chip-indexador">{{ ativo.detalhes_rf?.indexador || 'RF' }}</span>
+            </button>
+          }
+        </div>
+      } @else {
+        <p class="select-hint">Nenhum título cadastrado na carteira. Cadastre um novo título para visualizar as matrizes.</p>
+        <button type="button" class="btn btn-primary" (click)="store.abrirModal('NOVO_TITULO')">
+          ➕ Cadastrar Novo Título
+        </button>
+      }
+    </div>
+  </div>
+} @else {
 <div class="card">
   <!-- 1. Matriz de Cenários (Heatmap) -->
   <div class="card-header">
@@ -166,3 +193,4 @@
     <app-info-tip key="duration"></app-info-tip>
   </div>
 </div>
+}

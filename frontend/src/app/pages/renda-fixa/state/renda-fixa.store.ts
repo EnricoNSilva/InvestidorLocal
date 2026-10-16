@@ -3,13 +3,18 @@ import { firstValueFrom } from 'rxjs';
 import {
   AllocationSlice,
   AtivoRendaFixa,
+  AtivoRendaFixaUpdateDto,
   CadastroManualRendaFixaDto,
   CotacaoTesouroResponse,
   DetalhesRendaFixa,
   EnvelopeMercado,
+  LoteAbertoDto,
+  LoteComAtivoDto,
   LoteManualCreateDto,
+  LoteManualUpdateDto,
   MacroResponse,
   MercadoSnapshot,
+  ModalMode,
   PosicaoRendaFixa,
   Premissas,
   ProjectionSeries,
@@ -17,6 +22,8 @@ import {
   isLot,
   toEngineLot,
 } from '../../../core/models/renda-fixa.models';
+
+export const ATIVO_STORAGE_KEY = 'il.rendafixa.ativo_selecionado.v1';
 import { RendaFixaApiService } from '../../../core/services/renda-fixa-api.service';
 import {
   AnnuitySchedule,
@@ -45,7 +52,7 @@ import {
   toDayNum,
   trunc2,
 } from '../../../core/financial-engine';
-import { RatePoint, SensitivityRow } from '../../../core/financial-engine/types';
+import { RatePoint, SensitivityRow, SellResult, SellPart } from '../../../core/financial-engine/types';
 import {
   loadPremissas,
   savePremissas,
@@ -139,8 +146,31 @@ export class RendaFixaStore {
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly syncStatus = signal<string | null>(null);
+  readonly modalState = signal<{
+    open: boolean;
+    mode: ModalMode;
+    lote?: LoteAbertoDto | null;
+    ativo?: AtivoRendaFixa | null;
+  }>({
+    open: false,
+    mode: 'NOVO_TITULO',
+    lote: null,
+    ativo: null,
+  });
+
 
   // ---------- Derivados (Computed Signals) ----------
+  readonly isCarteiraCompleta = computed<boolean>(() => this.ativoId() === 0);
+
+  readonly totalTitulos = computed<number>(() => this.todasPosicoes().length);
+
+  readonly totalLotesAtivos = computed<number>(() =>
+    this.todasPosicoes().reduce(
+      (acc, p) => acc + (p.lotes?.filter((l) => Number(l.quantidade_aberta) > 0).length || 0),
+      0
+    )
+  );
+
   readonly mercado = computed<MercadoSnapshot | null>(() => {
     const tesouro = this.mercadoTesouro();
     const macro = this.mercadoMacro();
@@ -152,7 +182,41 @@ export class RendaFixaStore {
     (this.posicao()?.lotes ?? []).map(toEngineLot).filter(isLot)
   );
 
-  readonly pendencias = computed(() => this.posicao()?.pendencias ?? []);
+  readonly pendencias = computed(() => {
+    if (this.isCarteiraCompleta()) {
+      const all: string[] = [];
+      for (const p of this.todasPosicoes()) {
+        if (p.pendencias && p.pendencias.length > 0) {
+          all.push(...p.pendencias);
+        }
+      }
+      return all;
+    }
+    return this.posicao()?.pendencias ?? [];
+  });
+
+  readonly lotesPendentes = computed<LoteComAtivoDto[]>(() => {
+    const result: LoteComAtivoDto[] = [];
+    const posicoes = this.isCarteiraCompleta()
+      ? this.todasPosicoes()
+      : (this.posicao() ? [this.posicao()!] : []);
+
+    for (const pos of posicoes) {
+      for (const lote of pos.lotes ?? []) {
+        if (
+          lote.taxa_contratada === null ||
+          lote.taxa_contratada === undefined ||
+          lote.taxa_contratada === ''
+        ) {
+          result.push({
+            ...lote,
+            ativo: pos.ativo,
+          });
+        }
+      }
+    }
+    return result;
+  });
 
   readonly schedule = computed(() => scheduleFor(this.posicao()?.ativo?.detalhes_rf));
 
@@ -179,6 +243,23 @@ export class RendaFixaStore {
 
   readonly vnaHoje = computed(() => this.calib().Fref);
 
+  readonly cdiHistoricoInfo = computed(() => {
+    const hist = this.mercadoMacro()?.cdi?.historico_diario;
+    const map = new Map<number, number>();
+    let maxDN = 0;
+    if (hist && hist.length > 0) {
+      for (const pt of hist) {
+        const dn = toDayNum(pt.data);
+        const val = Number(pt.valor);
+        if (!isNaN(dn) && !isNaN(val)) {
+          map.set(dn, val);
+          if (dn > maxDN) maxDN = dn;
+        }
+      }
+    }
+    return { map, maxDN };
+  });
+
   readonly effectiveRefDN = computed(() => {
     const baseDN = this.calib().refDN;
     const inst = this.instrument();
@@ -189,7 +270,9 @@ export class RendaFixaStore {
       (max, l) => Math.max(max, typeof l.dn === 'number' ? l.dn : toDayNum(l.date)),
       baseDN
     );
-    return Math.min(maxLotDN, this.maxSimDate());
+    const histMaxDN = this.cdiHistoricoInfo().maxDN;
+    const refCandidate = histMaxDN > 0 ? Math.max(maxLotDN, histMaxDN + 1) : maxLotDN;
+    return Math.min(refCandidate, this.maxSimDate());
   });
 
   readonly simDN = computed(() => {
@@ -218,6 +301,7 @@ export class RendaFixaStore {
     const prem = this.premissas();
     const cdiDec = prem.cdiRatePct / 100;
     const ipcaDec = prem.ipcaProj / 100;
+    const histInfo = this.cdiHistoricoInfo();
 
     return {
       marketRate: this.calib().rNow,
@@ -226,6 +310,8 @@ export class RendaFixaStore {
       cdiAnual: cdiDec,
       selicAnual: cdiDec,
       ipcaAnual: ipcaDec,
+      cdiHistorico: histInfo.map.size > 0 ? histInfo.map : undefined,
+      maxCdiHistDN: histInfo.maxDN > 0 ? histInfo.maxDN : undefined,
     };
   });
 
@@ -240,7 +326,145 @@ export class RendaFixaStore {
     })
   );
 
-  readonly vendaHoje = computed(() => {
+  readonly todasPosicoesSimuladas = computed(() => {
+    const posicoes = this.todasPosicoes();
+    const prem = this.premissas();
+    const cdiHist = this.cdiHistoricoInfo();
+
+    return posicoes.map((pos) => {
+      const inst = instrumentFor(pos.ativo?.detalhes_rf, prem);
+      const schedule = scheduleFor(pos.ativo?.detalhes_rf);
+      const lots = (pos.lotes ?? []).map(toEngineLot).filter(isLot);
+
+      if (lots.length === 0) {
+        return {
+          pos,
+          inst,
+          res: {
+            parts: [] as SellPart[],
+            pu: 0,
+            q: 0,
+            bruto: 0,
+            custo: 0,
+            cust: 0,
+            iof: 0,
+            ir: 0,
+            irApp: 0,
+            liqReal: 0,
+            liqApp: 0,
+          },
+        };
+      }
+
+      let t: number;
+      if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
+        t = this.calib().refDN;
+      } else {
+        const maxLotDN = lots.reduce(
+          (max, l) => Math.max(max, typeof l.dn === 'number' ? l.dn : toDayNum(l.date)),
+          this.calib().refDN
+        );
+        const histMaxDN = cdiHist.maxDN;
+        const refCandidate = histMaxDN > 0 ? Math.max(maxLotDN, histMaxDN + 1) : maxLotDN;
+        const maxSimDate = inst.maxSimDate || schedule.maxSimDate;
+        t = Math.min(refCandidate, maxSimDate);
+      }
+
+      const ctx: PricingContext = {
+        ...this.pricingCtx(),
+        refDN: t,
+      };
+
+      const isSelectedBond = pos.ativo?.ticker === prem.selectedBond;
+      const overridePU =
+        (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') &&
+        isSelectedBond &&
+        this.calib().pNow > 0
+          ? this.calib().pNow
+          : null;
+
+      const res =
+        (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') && overridePU
+          ? simulateSellPEPS({
+              lots,
+              t,
+              r: this.calib().rNow,
+              vnaFactor: this.vnaHoje(),
+              overridePU,
+              custodyConfig: prem.custody,
+            })
+          : simulateSell({
+              lots,
+              t,
+              instrument: inst,
+              ctx,
+            });
+
+      return {
+        pos,
+        inst,
+        res,
+      };
+    });
+  });
+
+  readonly vendaHojeConsolidada = computed<SellResult>(() => {
+    const simList = this.todasPosicoesSimuladas();
+    const allParts: (SellPart & { ativo?: AtivoRendaFixa; instrument?: FixedIncomeInstrument })[] = [];
+    let q = 0;
+    let bruto = 0;
+    let custo = 0;
+    let cust = 0;
+    let iof = 0;
+    let ir = 0;
+    let irApp = 0;
+    let liqReal = 0;
+    let liqApp = 0;
+
+    for (const item of simList) {
+      for (const part of item.res.parts) {
+        allParts.push({
+          ...part,
+          ativo: item.pos.ativo,
+          instrument: item.inst,
+        });
+      }
+      q += item.res.q;
+      bruto += item.res.bruto;
+      custo += item.res.custo;
+      cust += item.res.cust;
+      iof += item.res.iof;
+      ir += item.res.ir;
+      irApp += item.res.irApp;
+      liqReal += item.res.liqReal;
+      liqApp += item.res.liqApp;
+    }
+
+    allParts.sort((a, b) => {
+      const adn = typeof a.lot.dn === 'number' ? a.lot.dn : toDayNum(a.lot.date);
+      const bdn = typeof b.lot.dn === 'number' ? b.lot.dn : toDayNum(b.lot.date);
+      return adn - bdn;
+    });
+
+    return {
+      parts: allParts,
+      pu: 0,
+      q,
+      bruto,
+      custo,
+      cust,
+      iof,
+      ir,
+      irApp,
+      liqReal,
+      liqApp,
+    };
+  });
+
+  readonly vendaHoje = computed<SellResult>(() => {
+    if (this.isCarteiraCompleta()) {
+      return this.vendaHojeConsolidada();
+    }
     const inst = this.instrument();
     if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
       return simulateSellPEPS({
@@ -337,7 +561,9 @@ export class RendaFixaStore {
     calcReturnPct(this.vendaHoje().liqApp, this.vendaHoje().custo)
   );
   readonly posRealReturnPct = computed(() =>
-    calcRealReturn(this.posReturnPctApp(), this.premissas().ipcaCal / 100)
+    this.vendaHoje().custo > 0
+      ? calcRealReturn(this.posReturnPctApp(), this.premissas().ipcaCal / 100)
+      : 0
   );
 
   readonly posAvgRate = computed(() => {
@@ -347,7 +573,37 @@ export class RendaFixaStore {
       : 0;
   });
 
+  readonly posTIRConsolidada = computed<number>(() => {
+    const simList = this.todasPosicoesSimuladas();
+    if (simList.length === 0) return 0;
+    const flows: { dn: number; amount: number }[] = [];
+
+    for (const item of simList) {
+      const lots = (item.pos.lotes ?? []).map(toEngineLot).filter(isLot);
+      for (const l of lots) {
+        flows.push({
+          dn: typeof l.dn === 'number' ? l.dn : toDayNum(l.date),
+          amount: -trunc2(l.qty * l.price),
+        });
+      }
+      for (const f of item.pos.fluxos_recebidos ?? []) {
+        if (f.tipo === 'SELL') continue;
+        flows.push({ dn: toDayNum(f.data), amount: Number(f.valor_brl) });
+      }
+    }
+
+    if (flows.length === 0) return 0;
+    const maxFlowDN = flows.reduce((max, f) => Math.max(max, f.dn), this.calib().refDN);
+    const evalDN = Math.max(this.calib().refDN, maxFlowDN, this.cdiHistoricoInfo().maxDN + 1);
+    flows.push({ dn: evalDN, amount: this.vendaHojeConsolidada().liqReal });
+    flows.sort((a, b) => a.dn - b.dn);
+    return calcXIRR(flows);
+  });
+
   readonly posTIR = computed(() => {
+    if (this.isCarteiraCompleta()) {
+      return this.posTIRConsolidada();
+    }
     const lots = this.lots();
     if (lots.length === 0) return 0;
     const flows = lots.map((l) => ({
@@ -428,6 +684,94 @@ export class RendaFixaStore {
     const v = this.projView();
     const p = this.premissas();
     const c = this.calib();
+
+    if (this.isCarteiraCompleta()) {
+      const simList = this.todasPosicoesSimuladas();
+      if (simList.length === 0) {
+        return {
+          labels: ['Hoje'],
+          series: { alvo: [0], carrego: [0], cdi: [0], queda5: [0], alta8: [0] },
+        };
+      }
+
+      let labels: string[] = [];
+      let alvoSum: number[] = [];
+      let carregoSum: number[] = [];
+      let cdiSum: number[] = [];
+      let queda5Sum: number[] = [];
+      let alta8Sum: number[] = [];
+
+      for (const item of simList) {
+        const lots = (item.pos.lotes ?? []).map(toEngineLot).filter(isLot);
+        if (lots.length === 0) continue;
+
+        const inst = item.inst;
+        const schedule = scheduleFor(item.pos.ativo?.detalhes_rf);
+        const maxSimDate = inst.maxSimDate || schedule.maxSimDate;
+
+        const posTodayVal = v.metric === 'bruto' ? item.res.bruto : item.res.liqReal;
+
+        const ctx: PricingContext = {
+          ...this.pricingCtx(),
+          refDN: this.calib().refDN,
+        };
+
+        const res = buildProjectionCurves({
+          refDN: this.calib().refDN,
+          Fref: c.Fref,
+          lots,
+          custodyConfig: p.custody,
+          horizonYears: 10,
+          isReal: v.base === 'real',
+          metric: v.metric,
+          ipca: p.ipcaProj,
+          targetRatePct: this.sim().targetRatePct,
+          cdiRatePct: p.cdiRatePct,
+          posLiqToday: posTodayVal,
+          maxSimDate,
+          instrument: inst,
+          pricingCtx: ctx,
+        });
+
+        if (labels.length === 0) {
+          labels = res.labels;
+          alvoSum = [...res.series.alvo];
+          carregoSum = [...res.series.carrego];
+          cdiSum = [...res.series.cdi];
+          queda5Sum = [...res.series.queda5];
+          alta8Sum = [...res.series.alta8];
+        } else {
+          for (let i = 0; i < labels.length; i++) {
+            alvoSum[i] = (alvoSum[i] || 0) + (res.series.alvo[i] || 0);
+            carregoSum[i] = (carregoSum[i] || 0) + (res.series.carrego[i] || 0);
+            cdiSum[i] = (cdiSum[i] || 0) + (res.series.cdi[i] || 0);
+            queda5Sum[i] = (queda5Sum[i] || 0) + (res.series.queda5[i] || 0);
+            alta8Sum[i] = (alta8Sum[i] || 0) + (res.series.alta8[i] || 0);
+          }
+        }
+      }
+
+      if (labels.length === 0) {
+        labels = ['Hoje'];
+        alvoSum = [0];
+        carregoSum = [0];
+        cdiSum = [0];
+        queda5Sum = [0];
+        alta8Sum = [0];
+      }
+
+      return {
+        labels,
+        series: {
+          alvo: alvoSum,
+          carrego: carregoSum,
+          cdi: cdiSum,
+          queda5: queda5Sum,
+          alta8: alta8Sum,
+        },
+      };
+    }
+
     const inst = this.instrument();
     const res = buildProjectionCurves({
       refDN: this.effectiveRefDN(),
@@ -546,6 +890,32 @@ export class RendaFixaStore {
     });
   });
 
+  readonly alocacaoTitulo = computed<AllocationSlice[]>(() => {
+    const simList = this.todasPosicoesSimuladas();
+    if (simList.length === 0) {
+      return [{ label: 'Sem Ativos', value: 1, pct: 1 }];
+    }
+
+    const items = simList
+      .map((item) => {
+        const label = item.pos.ativo.ticker || item.pos.ativo.nome;
+        const val = item.res.liqApp > 0 ? item.res.liqApp : (Number(item.pos.custo_total_brl) || 0);
+        return { label, value: val };
+      })
+      .filter((it) => it.value > 0);
+
+    const total = items.reduce((acc, it) => acc + it.value, 0);
+    if (total <= 0) {
+      return [{ label: 'Sem Ativos', value: 1, pct: 1 }];
+    }
+
+    return items.map((it) => ({
+      label: it.label,
+      value: it.value,
+      pct: it.value / total,
+    }));
+  });
+
   readonly alocacaoIndexador = computed<AllocationSlice[]>(() => {
     const posicoes = this.todasPosicoes();
     let ipcaSum = 0;
@@ -554,12 +924,11 @@ export class RendaFixaStore {
     let preSum = 0;
 
     if (posicoes.length > 0) {
-      for (const pos of posicoes) {
-        const idx = (pos.ativo?.detalhes_rf?.indexador || 'IPCA').toUpperCase();
-        const prod = (pos.ativo?.detalhes_rf?.produto || '').toUpperCase();
-        const val = pos.ativo.id === this.posicao()?.ativo?.id
-          ? Math.max(0, this.vendaHoje().liqApp)
-          : Number(pos.custo_total_brl) || 0;
+      const simList = this.todasPosicoesSimuladas();
+      for (const item of simList) {
+        const idx = (item.pos.ativo?.detalhes_rf?.indexador || 'IPCA').toUpperCase();
+        const prod = (item.pos.ativo?.detalhes_rf?.produto || '').toUpperCase();
+        const val = item.res.liqApp > 0 ? item.res.liqApp : (Number(item.pos.custo_total_brl) || 0);
 
         if (idx.includes('SELIC') || prod.includes('SELIC')) {
           selicSum += val;
@@ -607,10 +976,11 @@ export class RendaFixaStore {
     if (parts.length === 0 || total === 0) {
       return [{ label: 'Sem Ativos', value: 1, pct: 1 }];
     }
-    return parts.map((p, i) => {
+    return parts.map((p: any, i) => {
       const val = Math.max(0, p.liqApp);
+      const assetLabel = this.isCarteiraCompleta() && (p.ativo?.ticker || p.ativo?.nome) ? `${p.ativo.ticker || p.ativo.nome} · ` : '';
       return {
-        label: `Lote ${i + 1} (${p.lot.date})`,
+        label: `Lote ${i + 1} (${assetLabel}${p.lot.date})`,
         value: val,
         pct: total > 0 ? val / total : 0,
       };
@@ -620,6 +990,14 @@ export class RendaFixaStore {
   constructor() {
     effect(() => {
       savePremissas(this.premissas());
+    });
+    effect(() => {
+      const atId = this.ativoId();
+      if (atId !== null) {
+        try {
+          localStorage.setItem(ATIVO_STORAGE_KEY, String(atId));
+        } catch (_) {}
+      }
     });
   }
 
@@ -635,28 +1013,52 @@ export class RendaFixaStore {
       if (seq !== this.reqSeq) return;
       this.ativos.set(ativos);
 
-      if (ativos.length > 0 && this.ativoId() === null) {
-        // Seleciona preferencialmente o RendA+ 2065 ou o primeiro ativo
-        const rendaMais = ativos.find(
-          (a) =>
-            a.ticker.includes('RENDA+') ||
-            a.ticker.includes('2065') ||
-            a.detalhes_rf?.produto === 'TESOURO_RENDA_MAIS'
-        );
-        this.ativoId.set(rendaMais ? rendaMais.id : ativos[0].id);
+      if (this.ativoId() === null) {
+        let savedAtivoId: number | null = null;
+        try {
+          const raw = localStorage.getItem(ATIVO_STORAGE_KEY);
+          if (raw !== null && raw !== '') {
+            const parsed = parseInt(raw, 10);
+            if (!isNaN(parsed) && parsed >= 0) {
+              savedAtivoId = parsed;
+            }
+          }
+        } catch (_) {}
+
+        if (savedAtivoId === 0) {
+          this.ativoId.set(0);
+        } else if (savedAtivoId !== null && ativos.some((a) => a.id === savedAtivoId)) {
+          this.ativoId.set(savedAtivoId);
+        } else if (ativos.length > 0) {
+          const rendaMais = ativos.find(
+            (a) =>
+              a.ticker.includes('RENDA+') ||
+              a.ticker.includes('2065') ||
+              a.detalhes_rf?.produto === 'TESOURO_RENDA_MAIS'
+          );
+          this.ativoId.set(rendaMais ? rendaMais.id : ativos[0].id);
+        }
       }
 
       // 2. Carrega lotes PEPS
       const lotesResp = await firstValueFrom(
-        this.api.obterLotesPeps(this.carteiraId(), this.ativoId() ?? undefined)
+        this.api.obterLotesPeps(
+          this.carteiraId(),
+          this.ativoId() === 0 ? undefined : (this.ativoId() ?? undefined)
+        )
       );
       if (seq !== this.reqSeq) return;
       this.todasPosicoes.set(lotesResp.posicoes ?? []);
 
-      if (lotesResp.posicoes && lotesResp.posicoes.length > 0) {
-        this.posicao.set(lotesResp.posicoes[0]);
+      if (this.ativoId() === 0) {
+        this.posicao.set(null);
+      } else if (lotesResp.posicoes && lotesResp.posicoes.length > 0) {
+        const found = this.ativoId()
+          ? lotesResp.posicoes.find((p) => p.ativo.id === this.ativoId()) ?? lotesResp.posicoes[0]
+          : lotesResp.posicoes[0];
+        this.posicao.set(found);
         if (this.ativoId() === null) {
-          this.ativoId.set(lotesResp.posicoes[0].ativo.id);
+          this.ativoId.set(found.ativo.id);
         }
       } else {
         this.posicao.set(null);
@@ -720,16 +1122,28 @@ export class RendaFixaStore {
   async selecionarAtivo(ativoId: number): Promise<void> {
     const seq = ++this.reqSeq;
     this.ativoId.set(ativoId);
+    try {
+      localStorage.setItem(ATIVO_STORAGE_KEY, String(ativoId));
+    } catch (_) {}
     this.loading.set(true);
     this.error.set(null);
     this.patchSim({ qtyToSell: '', simDN: 0 });
 
     try {
-      const resp = await firstValueFrom(
-        this.api.obterLotesPeps(this.carteiraId(), ativoId)
-      );
-      if (seq !== this.reqSeq) return;
-      this.posicao.set(resp.posicoes?.[0] ?? null);
+      if (ativoId === 0) {
+        const resp = await firstValueFrom(
+          this.api.obterLotesPeps(this.carteiraId())
+        );
+        if (seq !== this.reqSeq) return;
+        this.todasPosicoes.set(resp.posicoes ?? []);
+        this.posicao.set(null);
+      } else {
+        const resp = await firstValueFrom(
+          this.api.obterLotesPeps(this.carteiraId(), ativoId)
+        );
+        if (seq !== this.reqSeq) return;
+        this.posicao.set(resp.posicoes?.[0] ?? null);
+      }
     } catch (err: any) {
       if (seq === this.reqSeq) {
         this.error.set(err?.message || 'Erro ao carregar ativo');
@@ -750,14 +1164,26 @@ export class RendaFixaStore {
       if (seq !== this.reqSeq) return;
       // Recarrega os lotes
       const lotesResp = await firstValueFrom(
-        this.api.obterLotesPeps(this.carteiraId(), this.ativoId() ?? undefined)
+        this.api.obterLotesPeps(
+          this.carteiraId(),
+          this.ativoId() === 0 ? undefined : (this.ativoId() ?? undefined)
+        )
       );
       if (seq !== this.reqSeq) return;
-      this.todasPosicoes.set(lotesResp.posicoes ?? []);
-      const pos = this.ativoId()
-        ? lotesResp.posicoes?.find((p) => p.ativo.id === this.ativoId()) ?? lotesResp.posicoes?.[0]
-        : lotesResp.posicoes?.[0];
-      this.posicao.set(pos ?? null);
+      if (this.ativoId() === 0) {
+        this.todasPosicoes.set(lotesResp.posicoes ?? []);
+        this.posicao.set(null);
+      } else {
+        const pos = this.ativoId()
+          ? lotesResp.posicoes?.find((p) => p.ativo.id === this.ativoId()) ?? lotesResp.posicoes?.[0]
+          : lotesResp.posicoes?.[0];
+        this.posicao.set(pos ?? null);
+        if (pos) {
+          this.todasPosicoes.update((list) =>
+            list.map((p) => (p.ativo.id === pos.ativo.id ? pos : p))
+          );
+        }
+      }
     } catch (err: any) {
       if (seq === this.reqSeq) {
         this.error.set(err?.message || 'Erro ao salvar taxa contratada');
@@ -829,6 +1255,166 @@ export class RendaFixaStore {
       }
     }
   }
+
+  async atualizarTitulo(ativoId: number, dto: AtivoRendaFixaUpdateDto): Promise<PosicaoRendaFixa> {
+    const seq = ++this.reqSeq;
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const posAtualizada = await firstValueFrom(
+        this.api.atualizarTituloRf(ativoId, dto, this.carteiraId())
+      );
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      const [ativos, lotesResp] = await Promise.all([
+        firstValueFrom(this.api.listarAtivos()),
+        firstValueFrom(this.api.obterLotesPeps(this.carteiraId())),
+      ]);
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      this.ativos.set(ativos);
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+      this.posicao.set(posAtualizada);
+      return posAtualizada;
+    } catch (err: any) {
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao atualizar título');
+      }
+      throw err;
+    } finally {
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
+    }
+  }
+
+  async excluirTitulo(ativoId: number): Promise<void> {
+    const seq = ++this.reqSeq;
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      await firstValueFrom(this.api.excluirTituloRf(ativoId));
+      if (seq !== this.reqSeq) return;
+
+      const [ativos, lotesResp] = await Promise.all([
+        firstValueFrom(this.api.listarAtivos()),
+        firstValueFrom(this.api.obterLotesPeps(this.carteiraId())),
+      ]);
+      if (seq !== this.reqSeq) return;
+
+      this.ativos.set(ativos);
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+
+      if (ativos.length > 0) {
+        const currentActiveId = this.ativoId();
+        if (currentActiveId === 0) {
+          this.ativoId.set(0);
+          this.posicao.set(null);
+        } else {
+          const stillExists = currentActiveId && ativos.some((a) => a.id === currentActiveId);
+          const nextId = stillExists ? currentActiveId! : ativos[0].id;
+          this.ativoId.set(nextId);
+          const nextPos = lotesResp.posicoes?.find((p) => p.ativo.id === nextId) ?? lotesResp.posicoes?.[0] ?? null;
+          this.posicao.set(nextPos);
+        }
+      } else {
+        this.ativoId.set(null);
+        this.posicao.set(null);
+      }
+      this.patchSim({ qtyToSell: '', simDN: 0 });
+    } catch (err: any) {
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao excluir título');
+      }
+      throw err;
+    } finally {
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
+    }
+  }
+
+  async editarLote(transacaoId: number, dto: LoteManualUpdateDto): Promise<PosicaoRendaFixa> {
+    const seq = ++this.reqSeq;
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const posAtualizada = await firstValueFrom(this.api.atualizarLoteManual(transacaoId, dto));
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      const lotesResp = await firstValueFrom(this.api.obterLotesPeps(this.carteiraId()));
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+      if (this.ativoId() === 0) {
+        this.posicao.set(null);
+      } else {
+        this.posicao.set(posAtualizada);
+      }
+      return posAtualizada;
+    } catch (err: any) {
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao editar lote');
+      }
+      throw err;
+    } finally {
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
+    }
+  }
+
+  async excluirLote(transacaoId: number): Promise<PosicaoRendaFixa> {
+    const seq = ++this.reqSeq;
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const posAtualizada = await firstValueFrom(this.api.excluirLoteManual(transacaoId));
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      const lotesResp = await firstValueFrom(this.api.obterLotesPeps(this.carteiraId()));
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+      if (this.ativoId() === 0) {
+        this.posicao.set(null);
+      } else {
+        this.posicao.set(posAtualizada);
+      }
+      return posAtualizada;
+    } catch (err: any) {
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao excluir lote');
+      }
+      throw err;
+    } finally {
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
+    }
+  }
+
+  abrirModal(
+    mode: ModalMode = 'NOVO_TITULO',
+    lote?: LoteAbertoDto | null,
+    ativo?: AtivoRendaFixa | null
+  ): void {
+    let at = ativo ?? null;
+    if (!at && lote) {
+      for (const pos of this.todasPosicoes()) {
+        if (pos.lotes?.some((l) => Number(l.transacao_id) === Number(lote.transacao_id))) {
+          at = pos.ativo;
+          break;
+        }
+      }
+    }
+    this.modalState.set({ open: true, mode, lote: lote ?? null, ativo: at });
+  }
+
+  fecharModal(): void {
+    this.modalState.set({ open: false, mode: 'NOVO_TITULO', lote: null, ativo: null });
+  }
+
 
   async sincronizarMercado(forcar: boolean = true): Promise<void> {
     this.syncStatus.set('🔄 Consultando dados de mercado...');

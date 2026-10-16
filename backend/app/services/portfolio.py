@@ -171,8 +171,14 @@ def recalcular_posicoes_carteira(db: Session, carteira_id: int) -> None:
         for p in db.query(PosicaoConsolidada).filter(PosicaoConsolidada.carteira_id == carteira_id).all()
     }
 
+    def _tx_sort_key(t: Transacao):
+        dt = t.data_hora
+        if dt is not None and dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return (dt or datetime.min, _op_priority(t.tipo_operacao), t.id or 0)
+
     for ativo_id, lista_tx in tx_por_ativo.items():
-        lista_tx.sort(key=lambda t: (t.data_hora or datetime.min, _op_priority(t.tipo_operacao)))
+        lista_tx.sort(key=_tx_sort_key)
 
         saldo = ZERO
         custo_total = ZERO

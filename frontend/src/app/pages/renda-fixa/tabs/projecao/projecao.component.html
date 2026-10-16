@@ -2,14 +2,20 @@
   <div class="card-header">
     <div>
       <h2>
-        @if (store.instrument().supportsMtM) {
+        @if (store.isCarteiraCompleta()) {
+          Evolução Patrimonial: Projeção Consolidada da Carteira de Renda Fixa
+        } @else if (store.instrument().supportsMtM) {
           Evolução Patrimonial: Marcação a Mercado vs. Carrego Puro
         } @else {
           Evolução Patrimonial: Projeção de Rendimento vs. Benchmark 100% CDI
         }
       </h2>
       <div class="desc">
-        Projeção do saldo da sua carteira em diferentes cenários de taxa ao longo dos anos.
+        @if (store.isCarteiraCompleta()) {
+          Projeção agregada de todos os títulos da carteira respeitando os prazos de vencimento e indexadores individuais.
+        } @else {
+          Projeção do saldo da sua carteira em diferentes cenários de taxa ao longo dos anos.
+        }
       </div>
     </div>
     <div class="btn-group-toggles">
@@ -52,7 +58,28 @@
   <div class="callout legend-callout">
     <strong>Leitura das 5 Curvas Projetadas:</strong>
     <ul>
-      @if (store.instrument().supportsMtM) {
+      @if (store.isCarteiraCompleta()) {
+        <li>
+          <span class="dot-legend dot-blue"></span>
+          <strong>Linha Azul (Cenário Consolidado):</strong> soma das projeções patrimoniais de todos os ativos da carteira até seus respectivos vencimentos.
+        </li>
+        <li>
+          <span class="dot-legend dot-dashed"></span>
+          <strong>Linha Branca Tracejada (Carrego Puro):</strong> valor total acumulado carregando todos os títulos pelas taxas contratadas originais.
+        </li>
+        <li>
+          <span class="dot-legend dot-purple"></span>
+          <strong>Linha Roxa Pontilhada (Benchmark 100% CDI):</strong> rendimento de referência aplicando todo o patrimônio consolidado a 100% do CDI ({{ store.premissas().cdiRatePct }}% a.a.).
+        </li>
+        <li>
+          <span class="dot-legend dot-green"></span>
+          <strong>Linha Verde (Cenário Otimista / Queda):</strong> valorização consolidada com fechamento de taxas / CDI favorável.
+        </li>
+        <li>
+          <span class="dot-legend dot-red"></span>
+          <strong>Linha Vermelha (Cenário Estresse / Alta):</strong> impacto consolidado de abertura de taxas / estresse de juros.
+        </li>
+      } @else if (store.instrument().supportsMtM) {
         <li>
           <span class="dot-legend dot-blue"></span>
           <strong>Linha Azul (Cenário Alvo):</strong> valor estimado caso a taxa atinja IPCA + {{ store.sim().targetRatePct }}% configurada no simulador.
