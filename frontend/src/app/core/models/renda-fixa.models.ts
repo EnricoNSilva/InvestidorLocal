@@ -101,6 +101,22 @@ export interface TaxaContratadaPatch {
   taxa_contratada: number | string;
 }
 
+export interface LoteManualCreateDto {
+  carteira_id?: number;
+  data_compra: string; // 'AAAA-MM-DD'
+  quantidade: number | string;
+  preco_unitario: number | string;
+  taxa_contratada: number | string;
+  taxas?: number | string;
+}
+
+export interface CadastroManualRendaFixaDto {
+  ticker?: string | null;
+  nome: string;
+  detalhes: DetalhesRendaFixaUpsert;
+  lote_inicial?: LoteManualCreateDto | null;
+}
+
 export interface DetalhesRendaFixaUpsert {
   produto: ProdutoRendaFixa;
   indexador: Indexador;

@@ -3,25 +3,45 @@
   <header class="rf-header">
     <div class="header-main">
       <div class="titles">
-        <h1>
-          Tesouro RENDA+ 2065
-          <span class="badge-title">NTN-B1 · 240 Parcelas</span>
-        </h1>
-        @if (store.ativos().length > 1) {
-          <div class="ativo-selector">
-            <label for="ativoSelect">Ativo:</label>
-            <select
-              id="ativoSelect"
-              [ngModel]="store.ativoId()"
-              (ngModelChange)="onAtivoChange($event)"
-              class="ativo-select"
-            >
-              @for (a of store.ativos(); track a.id) {
-                <option [value]="a.id">{{ a.ticker }} - {{ a.nome }}</option>
-              }
-            </select>
+        <div class="title-row">
+          <h1>
+            {{ store.posicao()?.ativo?.nome || store.posicao()?.ativo?.ticker || 'Tesouro RENDA+ 2065' }}
+          </h1>
+          <div class="badge-group">
+            @if (store.posicao()?.ativo?.detalhes_rf?.isento_ir) {
+              <span class="badge-tag badge-tax-free">ISENTO DE IR</span>
+            }
+            @if (store.posicao()?.ativo?.detalhes_rf?.cobra_custodia_b3 === false) {
+              <span class="badge-tag badge-no-custody">SEM CUSTÓDIA B3</span>
+            }
+            @if (store.posicao()?.ativo?.detalhes_rf?.data_vencimento) {
+              <span class="badge-tag badge-maturity">VENCIMENTO: {{ formatDate(store.posicao()?.ativo?.detalhes_rf?.data_vencimento) }}</span>
+            } @else if (store.posicao()?.ativo?.detalhes_rf?.ano_conversao) {
+              <span class="badge-title">Conversão {{ store.posicao()?.ativo?.detalhes_rf?.ano_conversao }}</span>
+            }
           </div>
-        }
+        </div>
+
+        <div class="actions-row">
+          @if (store.ativos().length > 1) {
+            <div class="ativo-selector">
+              <label for="ativoSelect">Ativo:</label>
+              <select
+                id="ativoSelect"
+                [ngModel]="store.ativoId()"
+                (ngModelChange)="onAtivoChange($event)"
+                class="ativo-select"
+              >
+                @for (a of store.ativos(); track a.id) {
+                  <option [value]="a.id">{{ a.ticker }} - {{ a.nome }}</option>
+                }
+              </select>
+            </div>
+          }
+          <button class="btn btn-novo-rf" (click)="openNovoTituloModal()">
+            <span>➕</span> Novo Título / Aporte RF
+          </button>
+        </div>
       </div>
 
       <!-- Quick Stats no Topo -->
@@ -31,8 +51,16 @@
           <strong class="val">{{ fmtBRL(store.vendaHoje().liqApp) }}</strong>
         </div>
         <div class="stat-pill">
-          <span class="lbl">Taxa Hoje:</span>
-          <strong class="val pos">IPCA + {{ fmtPct(store.calib().rNow) }}</strong>
+          <span class="lbl">Taxa / Indexador:</span>
+          @if (store.instrument().kind === 'CDI_POS') {
+            <strong class="val pos">{{ store.posAvgRate() || store.posicao()?.ativo?.detalhes_rf?.percentual_indexador || 100 }}% do CDI</strong>
+          } @else if (store.instrument().kind === 'SELIC_POS') {
+            <strong class="val pos">Selic + {{ fmtPct(store.posAvgRate() / 100, 2) }}</strong>
+          } @else if (store.instrument().kind === 'PREFIXADO') {
+            <strong class="val pos">{{ fmtPct(store.posAvgRate() / 100, 2) }} a.a.</strong>
+          } @else {
+            <strong class="val pos">IPCA + {{ fmtPct(store.calib().rNow) }}</strong>
+          }
         </div>
         <div class="stat-pill">
           <span class="lbl">Rentabilidade:</span>
@@ -122,4 +150,8 @@
       }
     }
   </main>
+
+  @if (showModal()) {
+    <app-novo-titulo-modal (close)="closeNovoTituloModal()"></app-novo-titulo-modal>
+  }
 </div>

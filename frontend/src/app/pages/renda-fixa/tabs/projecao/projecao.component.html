@@ -1,7 +1,13 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2>Evolução Patrimonial: Marcação a Mercado vs. Carrego Puro</h2>
+      <h2>
+        @if (store.instrument().supportsMtM) {
+          Evolução Patrimonial: Marcação a Mercado vs. Carrego Puro
+        } @else {
+          Evolução Patrimonial: Projeção de Rendimento vs. Benchmark 100% CDI
+        }
+      </h2>
       <div class="desc">
         Projeção do saldo da sua carteira em diferentes cenários de taxa ao longo dos anos.
       </div>
@@ -46,26 +52,49 @@
   <div class="callout legend-callout">
     <strong>Leitura das 5 Curvas Projetadas:</strong>
     <ul>
-      <li>
-        <span class="dot-legend dot-blue"></span>
-        <strong>Linha Azul (Cenário Alvo):</strong> valor estimado caso a taxa atinja IPCA + {{ store.sim().targetRatePct }}% configurada no simulador.
-      </li>
-      <li>
-        <span class="dot-legend dot-dashed"></span>
-        <strong>Linha Branca Tracejada (Carrego Puro):</strong> valor acumulado rendendo as taxas contratuais originais de cada compra (sem marcação a mercado).
-      </li>
-      <li>
-        <span class="dot-legend dot-purple"></span>
-        <strong>Linha Roxa Pontilhada (Benchmark 100% CDI):</strong> rendimento de referência aplicando o patrimônio de hoje a 100% do CDI ({{ store.premissas().cdiRatePct }}% a.a.).
-      </li>
-      <li>
-        <span class="dot-legend dot-green"></span>
-        <strong>Linha Verde (Queda 5%):</strong> valorização antecipada máxima proporcionada por uma queda forte dos juros futuros.
-      </li>
-      <li>
-        <span class="dot-legend dot-red"></span>
-        <strong>Linha Vermelha (Estresse 8%):</strong> efeito temporário de desvalorização patrimonial caso as taxas de juros do país subam.
-      </li>
+      @if (store.instrument().supportsMtM) {
+        <li>
+          <span class="dot-legend dot-blue"></span>
+          <strong>Linha Azul (Cenário Alvo):</strong> valor estimado caso a taxa atinja IPCA + {{ store.sim().targetRatePct }}% configurada no simulador.
+        </li>
+        <li>
+          <span class="dot-legend dot-dashed"></span>
+          <strong>Linha Branca Tracejada (Carrego Puro):</strong> valor acumulado rendendo as taxas contratuais originais de cada compra (sem marcação a mercado).
+        </li>
+        <li>
+          <span class="dot-legend dot-purple"></span>
+          <strong>Linha Roxa Pontilhada (Benchmark 100% CDI):</strong> rendimento de referência aplicando o patrimônio de hoje a 100% do CDI ({{ store.premissas().cdiRatePct }}% a.a.).
+        </li>
+        <li>
+          <span class="dot-legend dot-green"></span>
+          <strong>Linha Verde (Queda 5%):</strong> valorização antecipada máxima proporcionada por uma queda forte dos juros futuros.
+        </li>
+        <li>
+          <span class="dot-legend dot-red"></span>
+          <strong>Linha Vermelha (Estresse 8%):</strong> efeito temporário de desvalorização patrimonial caso as taxas de juros do país subam.
+        </li>
+      } @else {
+        <li>
+          <span class="dot-legend dot-blue"></span>
+          <strong>Linha Azul (Cenário Alvo / Carrego):</strong> valor estimado acompanhando a taxa contratada sob o CDI projetado de {{ store.premissas().cdiRatePct }}% a.a.
+        </li>
+        <li>
+          <span class="dot-legend dot-dashed"></span>
+          <strong>Linha Branca Tracejada (Carrego Puro):</strong> valor acumulado na curva contratada do ativo.
+        </li>
+        <li>
+          <span class="dot-legend dot-purple"></span>
+          <strong>Linha Roxa Pontilhada (Benchmark 100% CDI):</strong> rendimento de referência aplicando o patrimônio a 100% do CDI tributado.
+        </li>
+        <li>
+          <span class="dot-legend dot-green"></span>
+          <strong>Linha Verde (Cenário CDI Baixo):</strong> projeção com CDI - 2,0 p.p.
+        </li>
+        <li>
+          <span class="dot-legend dot-red"></span>
+          <strong>Linha Vermelha (Cenário CDI Alto):</strong> projeção com CDI + 2,0 p.p.
+        </li>
+      }
     </ul>
   </div>
 </div>

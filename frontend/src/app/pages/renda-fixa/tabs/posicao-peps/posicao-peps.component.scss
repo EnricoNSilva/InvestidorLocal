@@ -37,6 +37,42 @@
   }
 }
 
+.equivalence-card {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-left: 4px solid #10b981;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+
+  .equiv-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+
+    .icon {
+      font-size: 18px;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 14.5px;
+      font-weight: 700;
+      color: #10b981;
+    }
+  }
+
+  .equiv-body {
+    .equiv-text {
+      margin: 0;
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: #e2e8f0;
+      font-weight: 500;
+    }
+  }
+}
+
 .compare-box {
   background: var(--bg-card, #141c2e);
   border-left: 4px solid var(--brand-primary, #3b82f6);

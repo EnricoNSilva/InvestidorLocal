@@ -34,32 +34,60 @@
       </div>
     </div>
 
-    <!-- Slider 2: Taxa Real Alvo Futura -->
-    <div class="slider-group">
-      <div class="slider-header">
-        <span class="slider-label">Taxa Real do Título na Venda <app-info-tip key="taxaVenda"></app-info-tip></span>
-        <span class="slider-value-badge">IPCA + {{ fmtPctDirect(store.sim().targetRatePct) }}</span>
+    <!-- Slider 2: Taxa Real Alvo Futura ou CDI Médio Projetado -->
+    @if (isMtM()) {
+      <div class="slider-group">
+        <div class="slider-header">
+          <span class="slider-label">Taxa Real do Título na Venda <app-info-tip key="taxaVenda"></app-info-tip></span>
+          <span class="slider-value-badge">IPCA + {{ fmtPctDirect(store.sim().targetRatePct) }}</span>
+        </div>
+        <input
+          type="range"
+          class="slider-control"
+          min="3.0"
+          max="10.0"
+          step="0.05"
+          [value]="store.sim().targetRatePct"
+          (input)="onSlider({ targetRatePct: +$any($event.target).value })"
+        />
+        <div class="scale-ticks">
+          <span>3,0% (Super Lucro)</span>
+          <span>6,55% (Atual)</span>
+          <span>10,0% (Estresse)</span>
+        </div>
+        <div class="btn-group presets-row">
+          <button class="btn btn-secondary btn-sm" (click)="setPresetNow()">Taxa Hoje</button>
+          <button class="btn btn-secondary btn-sm" (click)="setPresetAvg()">Média Carteira</button>
+          <button class="btn btn-secondary btn-sm" (click)="setPresetLow()">Queda (5%)</button>
+        </div>
       </div>
-      <input
-        type="range"
-        class="slider-control"
-        min="3.0"
-        max="10.0"
-        step="0.05"
-        [value]="store.sim().targetRatePct"
-        (input)="onSlider({ targetRatePct: +$any($event.target).value })"
-      />
-      <div class="scale-ticks">
-        <span>3,0% (Super Lucro)</span>
-        <span>6,55% (Atual)</span>
-        <span>10,0% (Estresse)</span>
+    } @else {
+      <div class="slider-group">
+        <div class="slider-header">
+          <span class="slider-label">CDI Médio Projetado no Período (% a.a.) <app-info-tip key="taxaVenda"></app-info-tip></span>
+          <span class="slider-value-badge">{{ fmtNum(store.premissas().cdiRatePct, 2) }}% a.a.</span>
+        </div>
+        <input
+          type="range"
+          class="slider-control"
+          min="5.0"
+          max="20.0"
+          step="0.1"
+          [value]="store.premissas().cdiRatePct"
+          (input)="onCdiSlider(+$any($event.target).value)"
+        />
+        <div class="scale-ticks">
+          <span>5,0%</span>
+          <span>10,75% (Referência)</span>
+          <span>20,0%</span>
+        </div>
+        <div class="btn-group presets-row">
+          <button class="btn btn-secondary btn-sm" (click)="setCdiPreset(10.0)">CDI 10%</button>
+          <button class="btn btn-secondary btn-sm" (click)="setCdiPreset(11.5)">CDI 11,5%</button>
+          <button class="btn btn-secondary btn-sm" (click)="setCdiPreset(13.0)">CDI 13%</button>
+        </div>
       </div>
-      <div class="btn-group presets-row">
-        <button class="btn btn-secondary btn-sm" (click)="setPresetNow()">Taxa Hoje</button>
-        <button class="btn btn-secondary btn-sm" (click)="setPresetAvg()">Média Carteira</button>
-        <button class="btn btn-secondary btn-sm" (click)="setPresetLow()">Queda (5%)</button>
-      </div>
-    </div>
+    }
 
     <!-- Slider 3: Velocidade de Convergência -->
     <div class="slider-group">
@@ -177,19 +205,26 @@
         <app-info-tip key="carregoPuro"></app-info-tip>
       </div>
       <div class="decomp-content">
-        Ganho Bruto Total de <strong>{{ fmtBRL(store.decomposicao().ganhoBrutoTotal) }}</strong> composto por:
-        <ul>
-          <li>
-            <strong class="pos">{{ fmtBRL(store.decomposicao().ganhoCarrego) }} de Carrego Puro ({{ fmtPct(store.decomposicao().pctCarrego, 1) }} do ganho):</strong>
-            juros contratados de cada lote corrigidos pelo IPCA.
-          </li>
-          <li>
-            <strong [ngClass]="store.decomposicao().ganhoMarcacao >= 0 ? 'pos' : 'neg'">
-              {{ store.decomposicao().ganhoMarcacao >= 0 ? '+' : '' }}{{ fmtBRL(store.decomposicao().ganhoMarcacao) }} de Marcação a Mercado ({{ fmtPct(store.decomposicao().pctMarcacao, 1) }} do ganho):
-            </strong>
-            impacto da oscilação da taxa de mercado para IPCA + {{ fmtPct(store.rateAtSale()) }}.
-          </li>
-        </ul>
+        @if (isMtM()) {
+          Ganho Bruto Total de <strong>{{ fmtBRL(store.decomposicao().ganhoBrutoTotal) }}</strong> composto por:
+          <ul>
+            <li>
+              <strong class="pos">{{ fmtBRL(store.decomposicao().ganhoCarrego) }} de Carrego Puro ({{ fmtPct(store.decomposicao().pctCarrego, 1) }} do ganho):</strong>
+              juros contratados de cada lote corrigidos pelo IPCA.
+            </li>
+            <li>
+              <strong [ngClass]="store.decomposicao().ganhoMarcacao >= 0 ? 'pos' : 'neg'">
+                {{ store.decomposicao().ganhoMarcacao >= 0 ? '+' : '' }}{{ fmtBRL(store.decomposicao().ganhoMarcacao) }} de Marcação a Mercado ({{ fmtPct(store.decomposicao().pctMarcacao, 1) }} do ganho):
+              </strong>
+              impacto da oscilação da taxa de mercado para IPCA + {{ fmtPct(store.rateAtSale()) }}.
+            </li>
+          </ul>
+        } @else {
+          Ganho Bruto Total de <strong>{{ fmtBRL(store.decomposicao().ganhoBrutoTotal) }}</strong> (100% Carrego da taxa contratada):
+          <p class="decomp-note" style="margin-top: 8px; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+            ℹ️ Títulos pós-fixados bancários e levados na curva não sofrem deságio de marcação a mercado secundária. Todo o rendimento provém 100% do carrego diário da taxa contratada ({{ fmtBRL(store.decomposicao().ganhoCarrego) }} de ganho bruto, ganho de marcação = R$ 0,00).
+          </p>
+        }
       </div>
     </div>
 

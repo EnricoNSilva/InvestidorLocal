@@ -64,14 +64,24 @@
     </table>
   </div>
 
-  <!-- 2. Tabela de Sensibilidade Imediata (Choques na Taxa) -->
+  <!-- 2. Tabela de Sensibilidade Imediata ou ao CDI -->
   <div class="card-header section-divider">
     <div>
       <h2>
-        <span>⚡</span> Sensibilidade Imediata a Choques de Juros (Hoje)
+        @if (store.instrument().supportsMtM) {
+          <span>⚡</span> Sensibilidade Imediata a Choques de Juros (Hoje)
+        } @else {
+          <span>⚡</span> Sensibilidade da Renda no Vencimento a Variações do CDI (±300 bps)
+        }
         <app-info-tip key="choqueTaxa"></app-info-tip>
       </h2>
-      <div class="desc">Impacto instantâneo de uma variação imediata na curva de juros sobre o seu patrimônio.</div>
+      <div class="desc">
+        @if (store.instrument().supportsMtM) {
+          Impacto instantâneo de uma variação imediata na curva de juros sobre o seu patrimônio.
+        } @else {
+          Impacto de oscilações na taxa CDI sobre o valor acumulado e rentabilidade líquida final no vencimento.
+        }
+      </div>
     </div>
   </div>
 
@@ -90,7 +100,9 @@
         <tr>
           <td><strong>Taxa Resultante</strong></td>
           @for (r of shockRows(); track r.shock) {
-            <td class="text-center">IPCA + {{ fmtPct(r.newRate, 2) }}</td>
+            <td class="text-center">
+              {{ store.instrument().supportsMtM ? ('IPCA + ' + fmtPct(r.newRate, 2)) : ('CDI ' + fmtPct(r.newRate, 2)) }}
+            </td>
           }
         </tr>
 

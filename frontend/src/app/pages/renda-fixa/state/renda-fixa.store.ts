@@ -3,9 +3,11 @@ import { firstValueFrom } from 'rxjs';
 import {
   AllocationSlice,
   AtivoRendaFixa,
+  CadastroManualRendaFixaDto,
   CotacaoTesouroResponse,
   DetalhesRendaFixa,
   EnvelopeMercado,
+  LoteManualCreateDto,
   MacroResponse,
   MercadoSnapshot,
   PosicaoRendaFixa,
@@ -18,6 +20,8 @@ import {
 import { RendaFixaApiService } from '../../../core/services/renda-fixa-api.service';
 import {
   AnnuitySchedule,
+  FixedIncomeInstrument,
+  PricingContext,
   RENDA_MAIS_2065,
   addYearsDN,
   buildProjectionCurves,
@@ -30,10 +34,13 @@ import {
   calcXIRR,
   calibrateModel,
   createAnnuitySchedule,
+  createBulletInstrument,
+  createCdiInstrument,
   createRendaMaisInstrument,
   decomposeCarryAndMtM,
   generateRateTrajectory,
   getVNAFactor,
+  simulateSell,
   simulateSellPEPS,
   toDayNum,
   trunc2,
@@ -56,6 +63,48 @@ export function scheduleFor(detalhes?: DetalhesRendaFixa | null): AnnuitySchedul
   return RENDA_MAIS_2065;
 }
 
+export function instrumentFor(
+  detalhes: DetalhesRendaFixa | null | undefined,
+  premissas: Premissas
+): FixedIncomeInstrument {
+  const schedule = scheduleFor(detalhes);
+  if (
+    !detalhes ||
+    detalhes.produto === 'TESOURO_RENDA_MAIS' ||
+    detalhes.produto === 'TESOURO_EDUCA_MAIS'
+  ) {
+    return createRendaMaisInstrument(schedule, premissas.custody);
+  }
+
+  const vencDN = detalhes.data_vencimento
+    ? toDayNum(detalhes.data_vencimento)
+    : addYearsDN(toDayNum(premissas.refDate), 3);
+
+  const isentoIr = Boolean(detalhes.isento_ir);
+  const cobraCustodiaB3 = Boolean(detalhes.cobra_custodia_b3);
+
+  if (detalhes.indexador === 'CDI' || detalhes.indexador === 'SELIC') {
+    const kind = detalhes.indexador === 'SELIC' ? 'SELIC_POS' : 'CDI_POS';
+    return createCdiInstrument({
+      kind,
+      vencimento: vencDN,
+      isentoIr,
+      cobraCustodiaB3,
+      custodyConfig: premissas.custody,
+      defaultPctCdi: Number(detalhes.percentual_indexador) || 100,
+    });
+  }
+
+  return createBulletInstrument({
+    kind: detalhes.indexador === 'IPCA' ? 'IPCA_BULLET' : 'PREFIXADO',
+    vencimento: vencDN,
+    isentoIr,
+    cobraCustodiaB3,
+    supportsMtM: detalhes.produto.startsWith('TESOURO_'),
+    custodyConfig: premissas.custody,
+  });
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -68,6 +117,7 @@ export class RendaFixaStore {
   readonly ativoId = signal<number | null>(null);
   readonly ativos = signal<AtivoRendaFixa[]>([]);
   readonly posicao = signal<PosicaoRendaFixa | null>(null);
+  readonly todasPosicoes = signal<PosicaoRendaFixa[]>([]);
   readonly mercadoTesouro = signal<EnvelopeMercado<CotacaoTesouroResponse> | null>(null);
   readonly mercadoMacro = signal<MacroResponse | null>(null);
   readonly premissas = signal<Premissas>(loadPremissas());
@@ -106,9 +156,14 @@ export class RendaFixaStore {
 
   readonly schedule = computed(() => scheduleFor(this.posicao()?.ativo?.detalhes_rf));
 
-  readonly instrument = computed(() =>
-    createRendaMaisInstrument(this.schedule(), this.premissas().custody)
+  readonly instrument = computed<FixedIncomeInstrument>(() =>
+    instrumentFor(this.posicao()?.ativo?.detalhes_rf, this.premissas())
   );
+
+  readonly maxSimDate = computed(() => {
+    const inst = this.instrument();
+    return inst.maxSimDate || this.schedule().maxSimDate;
+  });
 
   readonly calib = computed(() => {
     const prem = this.premissas();
@@ -130,11 +185,11 @@ export class RendaFixaStore {
       s.simDN && s.simDN > 0
         ? s.simDN
         : addYearsDN(this.calib().refDN, s.simYears || 1.0);
-    return Math.min(dn, this.schedule().maxSimDate);
+    return Math.min(dn, this.maxSimDate());
   });
 
   readonly simDNClamped = computed(() =>
-    Math.min(this.simDN(), this.schedule().maxSimDate)
+    Math.min(this.simDN(), this.maxSimDate())
   );
 
   readonly vnaSim = computed(() =>
@@ -145,6 +200,24 @@ export class RendaFixaStore {
       this.premissas().ipcaProj
     )
   );
+
+  readonly pricingCtx = computed<PricingContext>(() => {
+    const prem = this.premissas();
+    const cdiDec = prem.cdiRatePct / 100;
+    const selicDec = this.mercadoMacro()?.selic?.valor_anualizado_pct
+      ? Number(this.mercadoMacro()!.selic.valor_anualizado_pct) / 100
+      : cdiDec + 0.001;
+    const ipcaDec = prem.ipcaProj / 100;
+
+    return {
+      marketRate: this.calib().rNow,
+      refDN: this.calib().refDN,
+      vnaFactor: this.vnaHoje(),
+      cdiAnual: cdiDec,
+      selicAnual: selicDec,
+      ipcaAnual: ipcaDec,
+    };
+  });
 
   readonly rateAtSale = computed(() =>
     calcRateAtSale({
@@ -157,51 +230,93 @@ export class RendaFixaStore {
     })
   );
 
-  readonly vendaHoje = computed(() =>
-    simulateSellPEPS({
+  readonly vendaHoje = computed(() => {
+    const inst = this.instrument();
+    if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
+      return simulateSellPEPS({
+        lots: this.lots(),
+        t: this.calib().refDN,
+        r: this.calib().rNow,
+        vnaFactor: this.vnaHoje(),
+        overridePU: this.calib().pNow,
+        custodyConfig: this.premissas().custody,
+      });
+    }
+    return simulateSell({
       lots: this.lots(),
       t: this.calib().refDN,
-      r: this.calib().rNow,
-      vnaFactor: this.vnaHoje(),
-      overridePU: this.calib().pNow,
-      custodyConfig: this.premissas().custody,
-    })
-  );
+      instrument: inst,
+      ctx: this.pricingCtx(),
+    });
+  });
 
   readonly vendaSim = computed(() => {
     const num = Number(this.sim().qtyToSell);
     const qty = !isNaN(num) && num > 0 ? num : undefined;
-    return simulateSellPEPS({
+    const inst = this.instrument();
+    if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
+      return simulateSellPEPS({
+        lots: this.lots(),
+        t: this.simDNClamped(),
+        r: this.rateAtSale(),
+        vnaFactor: this.vnaSim(),
+        qtyToSell: qty,
+        custodyConfig: this.premissas().custody,
+      });
+    }
+    const ctx: PricingContext = {
+      ...this.pricingCtx(),
+      marketRate: this.rateAtSale(),
+      vnaFactor: this.vnaSim(),
+    };
+    return simulateSell({
       lots: this.lots(),
       t: this.simDNClamped(),
-      r: this.rateAtSale(),
-      vnaFactor: this.vnaSim(),
+      instrument: inst,
+      ctx,
       qtyToSell: qty,
-      custodyConfig: this.premissas().custody,
     });
   });
 
   readonly nowResForSoldQty = computed(() => {
     const num = Number(this.sim().qtyToSell);
     const qty = !isNaN(num) && num > 0 ? num : undefined;
-    return simulateSellPEPS({
+    const inst = this.instrument();
+    if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
+      return simulateSellPEPS({
+        lots: this.lots(),
+        t: this.calib().refDN,
+        r: this.calib().rNow,
+        vnaFactor: this.vnaHoje(),
+        qtyToSell: qty,
+        overridePU: this.calib().pNow,
+        custodyConfig: this.premissas().custody,
+      });
+    }
+    return simulateSell({
       lots: this.lots(),
       t: this.calib().refDN,
-      r: this.calib().rNow,
-      vnaFactor: this.vnaHoje(),
+      instrument: inst,
+      ctx: this.pricingCtx(),
       qtyToSell: qty,
-      overridePU: this.calib().pNow,
-      custodyConfig: this.premissas().custody,
     });
   });
 
-  readonly decomposicao = computed(() =>
-    decomposeCarryAndMtM({
+  readonly decomposicao = computed(() => {
+    const inst = this.instrument();
+    const ctx: PricingContext = {
+      ...this.pricingCtx(),
+      marketRate: this.rateAtSale(),
+      vnaFactor: this.vnaSim(),
+    };
+    return decomposeCarryAndMtM({
       simRes: this.vendaSim(),
       simDN: this.simDNClamped(),
       vnaFactor: this.vnaSim(),
-    })
-  );
+      instrument: inst,
+      ctx,
+    });
+  });
 
   readonly posLucroReal = computed(() => this.vendaHoje().liqReal - this.vendaHoje().custo);
   readonly posLucroApp = computed(() => this.vendaHoje().liqApp - this.vendaHoje().custo);
@@ -303,6 +418,7 @@ export class RendaFixaStore {
     const v = this.projView();
     const p = this.premissas();
     const c = this.calib();
+    const inst = this.instrument();
     const res = buildProjectionCurves({
       refDN: c.refDN,
       Fref: c.Fref,
@@ -315,7 +431,9 @@ export class RendaFixaStore {
       targetRatePct: this.sim().targetRatePct,
       cdiRatePct: p.cdiRatePct,
       posLiqToday: v.metric === 'bruto' ? this.vendaHoje().bruto : this.vendaHoje().liqReal,
-      maxSimDate: this.schedule().maxSimDate,
+      maxSimDate: this.maxSimDate(),
+      instrument: inst,
+      pricingCtx: this.pricingCtx(),
     });
     return {
       labels: res.labels,
@@ -323,43 +441,112 @@ export class RendaFixaStore {
     };
   });
 
-  readonly sensibilidade = computed<SensitivityRow[]>(() =>
-    calcSensitivityTable({
-      refDN: this.calib().refDN,
-      rNow: this.calib().rNow,
-      pNow: this.calib().pNow,
-      vnaFactor: this.vnaHoje(),
+  readonly sensibilidade = computed<SensitivityRow[]>(() => {
+    const inst = this.instrument();
+    if (inst.supportsMtM) {
+      return calcSensitivityTable({
+        refDN: this.calib().refDN,
+        rNow: this.calib().rNow,
+        pNow: this.calib().pNow,
+        vnaFactor: this.vnaHoje(),
+        lots: this.lots(),
+        custodyConfig: this.premissas().custody,
+      });
+    }
+
+    const baseCdiPct = this.premissas().cdiRatePct;
+    const baseCdiDec = baseCdiPct / 100;
+    const baseCtx: PricingContext = { ...this.pricingCtx(), cdiAnual: baseCdiDec };
+    const baseRes = simulateSell({
       lots: this.lots(),
-      custodyConfig: this.premissas().custody,
-    })
-  );
+      t: this.maxSimDate(),
+      instrument: inst,
+      ctx: baseCtx,
+    });
+
+    const shocks = [-3.0, -2.0, -1.0, -0.5, 0.5, 1.0, 2.0, 3.0];
+    return shocks.map((s) => {
+      const shockedCdiPct = Math.max(0.5, baseCdiPct + s);
+      const shockedCdiDec = shockedCdiPct / 100;
+      const shockCtx: PricingContext = { ...this.pricingCtx(), cdiAnual: shockedCdiDec };
+      const shockRes = simulateSell({
+        lots: this.lots(),
+        t: this.maxSimDate(),
+        instrument: inst,
+        ctx: shockCtx,
+      });
+
+      const brutoDiff = shockRes.bruto - baseRes.bruto;
+      const liqDiff = shockRes.liqApp - baseRes.liqApp;
+      const puVarPct = baseRes.pu > 0 ? (shockRes.pu - baseRes.pu) / baseRes.pu : 0;
+      const liqReturnPct = calcReturnPct(shockRes.liqApp, shockRes.custo);
+
+      return {
+        shock: s,
+        newRate: shockedCdiDec,
+        newPU: shockRes.pu,
+        bruto: shockRes.bruto,
+        brutoDiff,
+        liqApp: shockRes.liqApp,
+        liqDiff,
+        puVarPct,
+        liqReturnPct,
+      };
+    });
+  });
 
   readonly alocacaoIndexador = computed<AllocationSlice[]>(() => {
-    const v = this.vendaHoje();
-    const parts = v.parts || [];
-    const indexer = (this.posicao()?.ativo?.detalhes_rf?.indexador || 'IPCA').toUpperCase();
+    const posicoes = this.todasPosicoes();
     let ipcaSum = 0;
+    let cdiSum = 0;
     let selicSum = 0;
     let preSum = 0;
 
-    for (const p of parts) {
-      if (indexer.includes('SELIC')) {
-        selicSum += p.liqApp;
-      } else if (indexer.includes('PREFIXADO') || indexer.includes('PRE')) {
-        preSum += p.liqApp;
+    if (posicoes.length > 0) {
+      for (const pos of posicoes) {
+        const idx = (pos.ativo?.detalhes_rf?.indexador || 'IPCA').toUpperCase();
+        const prod = (pos.ativo?.detalhes_rf?.produto || '').toUpperCase();
+        const val = pos.ativo.id === this.posicao()?.ativo?.id
+          ? Math.max(0, this.vendaHoje().liqApp)
+          : Number(pos.custo_total_brl) || 0;
+
+        if (idx.includes('SELIC') || prod.includes('SELIC')) {
+          selicSum += val;
+        } else if (idx.includes('CDI') || prod === 'CDB' || prod === 'LCI' || prod === 'LCA' || prod === 'LC') {
+          cdiSum += val;
+        } else if (idx.includes('PRE') || prod.includes('PREFIXADO')) {
+          preSum += val;
+        } else {
+          ipcaSum += val;
+        }
+      }
+    } else {
+      const v = this.vendaHoje();
+      const idx = (this.posicao()?.ativo?.detalhes_rf?.indexador || 'IPCA').toUpperCase();
+      const prod = (this.posicao()?.ativo?.detalhes_rf?.produto || '').toUpperCase();
+      const val = Math.max(0, v.liqApp);
+      if (idx.includes('SELIC') || prod.includes('SELIC')) {
+        selicSum = val;
+      } else if (idx.includes('CDI') || prod === 'CDB' || prod === 'LCI' || prod === 'LCA' || prod === 'LC') {
+        cdiSum = val;
+      } else if (idx.includes('PRE') || prod.includes('PREFIXADO')) {
+        preSum = val;
       } else {
-        ipcaSum += p.liqApp;
+        ipcaSum = val;
       }
     }
-    const total = Math.max(0, ipcaSum + selicSum + preSum);
-    if (total === 0) {
+
+    const total = ipcaSum + cdiSum + selicSum + preSum;
+    if (total <= 0) {
       return [{ label: 'Sem Ativos', value: 1, pct: 1 }];
     }
-    return [
-      { label: 'IPCA+ / Renda+', value: ipcaSum, pct: total > 0 ? ipcaSum / total : 0 },
-      { label: 'Tesouro Selic', value: selicSum, pct: total > 0 ? selicSum / total : 0 },
-      { label: 'Tesouro Prefixado', value: preSum, pct: total > 0 ? preSum / total : 0 },
-    ];
+    const slices: AllocationSlice[] = [];
+    if (ipcaSum > 0) slices.push({ label: 'IPCA+ / RendA+', value: ipcaSum, pct: ipcaSum / total });
+    if (cdiSum > 0) slices.push({ label: 'Pós-Fixado CDI', value: cdiSum, pct: cdiSum / total });
+    if (selicSum > 0) slices.push({ label: 'Tesouro Selic', value: selicSum, pct: selicSum / total });
+    if (preSum > 0) slices.push({ label: 'Prefixado', value: preSum, pct: preSum / total });
+
+    return slices.length > 0 ? slices : [{ label: 'Sem Ativos', value: 1, pct: 1 }];
   });
 
   readonly alocacaoLotes = computed<AllocationSlice[]>(() => {
@@ -413,6 +600,8 @@ export class RendaFixaStore {
         this.api.obterLotesPeps(this.carteiraId(), this.ativoId() ?? undefined)
       );
       if (seq !== this.reqSeq) return;
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+
       if (lotesResp.posicoes && lotesResp.posicoes.length > 0) {
         this.posicao.set(lotesResp.posicoes[0]);
         if (this.ativoId() === null) {
@@ -513,6 +702,7 @@ export class RendaFixaStore {
         this.api.obterLotesPeps(this.carteiraId(), this.ativoId() ?? undefined)
       );
       if (seq !== this.reqSeq) return;
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
       const pos = this.ativoId()
         ? lotesResp.posicoes?.find((p) => p.ativo.id === this.ativoId()) ?? lotesResp.posicoes?.[0]
         : lotesResp.posicoes?.[0];
@@ -520,6 +710,65 @@ export class RendaFixaStore {
     } catch (err: any) {
       if (seq === this.reqSeq) {
         this.error.set(err?.message || 'Erro ao salvar taxa contratada');
+      }
+      throw err;
+    } finally {
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
+    }
+  }
+
+  async criarTituloManual(dto: CadastroManualRendaFixaDto): Promise<PosicaoRendaFixa> {
+    const seq = ++this.reqSeq;
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const novaPos = await firstValueFrom(this.api.cadastrarTituloManual(dto));
+      if (seq !== this.reqSeq) return novaPos;
+
+      const [ativos, lotesResp] = await Promise.all([
+        firstValueFrom(this.api.listarAtivos()),
+        firstValueFrom(this.api.obterLotesPeps(this.carteiraId())),
+      ]);
+      if (seq !== this.reqSeq) return novaPos;
+
+      this.ativos.set(ativos);
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+      this.ativoId.set(novaPos.ativo.id);
+      this.posicao.set(novaPos);
+      return novaPos;
+    } catch (err: any) {
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao cadastrar título manual');
+      }
+      throw err;
+    } finally {
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
+    }
+  }
+
+  async adicionarLote(ativoId: number, dto: LoteManualCreateDto): Promise<PosicaoRendaFixa> {
+    const seq = ++this.reqSeq;
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const posAtualizada = await firstValueFrom(this.api.adicionarLoteManual(ativoId, dto));
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      const lotesResp = await firstValueFrom(this.api.obterLotesPeps(this.carteiraId()));
+      if (seq !== this.reqSeq) return posAtualizada;
+
+      this.todasPosicoes.set(lotesResp.posicoes ?? []);
+      if (this.ativoId() === ativoId) {
+        this.posicao.set(posAtualizada);
+      }
+      return posAtualizada;
+    } catch (err: any) {
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao adicionar lote');
       }
       throw err;
     } finally {

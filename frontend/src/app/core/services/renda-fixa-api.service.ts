@@ -3,13 +3,16 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   AtivoRendaFixa,
+  CadastroManualRendaFixaDto,
   CotacaoTesouroResponse,
   DetalhesRendaFixa,
   DetalhesRendaFixaUpsert,
   EnvelopeMercado,
   Indexador,
+  LoteManualCreateDto,
   LotesRendaFixaResponse,
   MacroResponse,
+  PosicaoRendaFixa,
   TaxaContratadaPatch,
 } from '../models/renda-fixa.models';
 import { Transacao } from '../models/investimento.models';
@@ -67,5 +70,13 @@ export class RendaFixaApiService {
   obterMercadoMacro(forcar: boolean = false): Observable<MacroResponse> {
     const params = new HttpParams().set('forcar', forcar.toString());
     return this.http.get<MacroResponse>(`${this.baseUrl}/mercado/macro`, { params });
+  }
+
+  cadastrarTituloManual(payload: CadastroManualRendaFixaDto): Observable<PosicaoRendaFixa> {
+    return this.http.post<PosicaoRendaFixa>(`${this.baseUrl}/cadastro-manual`, payload);
+  }
+
+  adicionarLoteManual(ativoId: number, payload: LoteManualCreateDto): Observable<PosicaoRendaFixa> {
+    return this.http.post<PosicaoRendaFixa>(`${this.baseUrl}/ativos/${ativoId}/lotes`, payload);
   }
 }

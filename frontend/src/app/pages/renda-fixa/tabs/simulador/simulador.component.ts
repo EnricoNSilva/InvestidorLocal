@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, OnDestroy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, OnDestroy, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RendaFixaStore } from '../../state/renda-fixa.store';
@@ -24,6 +24,9 @@ import { formatBRLDate } from '../../../../core/financial-engine/dates';
 })
 export class SimuladorComponent implements OnDestroy {
   readonly store = inject(RendaFixaStore);
+
+  readonly isMtM = computed(() => this.store.instrument().supportsMtM);
+  readonly isCdi = computed(() => this.store.instrument().kind === 'CDI_POS');
 
   private rafId = 0;
   private pendingSim: Partial<SimInputs> = {};
@@ -55,6 +58,14 @@ export class SimuladorComponent implements OnDestroy {
       }
       this.ipcaRafId = 0;
     });
+  }
+
+  onCdiSlider(val: number): void {
+    this.store.patchPremissas({ cdiRatePct: val });
+  }
+
+  setCdiPreset(val: number): void {
+    this.store.patchPremissas({ cdiRatePct: val });
   }
 
   setPresetNow(): void {

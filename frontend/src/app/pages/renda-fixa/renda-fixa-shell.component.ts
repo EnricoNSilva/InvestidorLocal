@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RendaFixaStore } from './state/renda-fixa.store';
@@ -7,6 +7,7 @@ import { SimuladorComponent } from './tabs/simulador/simulador.component';
 import { ProjecaoComponent } from './tabs/projecao/projecao.component';
 import { SensibilidadeComponent } from './tabs/sensibilidade/sensibilidade.component';
 import { PremissasComponent } from './tabs/premissas/premissas.component';
+import { NovoTituloRfModalComponent } from './components/novo-titulo-modal.component';
 
 @Component({
   selector: 'app-renda-fixa-shell',
@@ -19,6 +20,7 @@ import { PremissasComponent } from './tabs/premissas/premissas.component';
     ProjecaoComponent,
     SensibilidadeComponent,
     PremissasComponent,
+    NovoTituloRfModalComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './renda-fixa-shell.component.html',
@@ -26,6 +28,7 @@ import { PremissasComponent } from './tabs/premissas/premissas.component';
 })
 export class RendaFixaShellComponent implements OnInit {
   readonly store = inject(RendaFixaStore);
+  readonly showModal = signal<boolean>(false);
 
   ngOnInit(): void {
     try {
@@ -48,6 +51,25 @@ export class RendaFixaShellComponent implements OnInit {
     const id = Number(idVal);
     if (!isNaN(id) && id > 0) {
       this.store.selecionarAtivo(id);
+    }
+  }
+
+  openNovoTituloModal(): void {
+    this.showModal.set(true);
+  }
+
+  closeNovoTituloModal(): void {
+    this.showModal.set(false);
+  }
+
+  formatDate(d: string | null | undefined): string {
+    if (!d) return '';
+    try {
+      const [y, m, day] = d.split('T')[0].split('-');
+      if (y && m && day) return `${day}/${m}/${y}`;
+      return d;
+    } catch (_) {
+      return d;
     }
   }
 

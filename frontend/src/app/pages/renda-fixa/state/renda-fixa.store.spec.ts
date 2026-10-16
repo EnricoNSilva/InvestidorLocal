@@ -4,7 +4,11 @@ import { provideHttpClientTesting, HttpTestingController } from '@angular/common
 import { RendaFixaStore } from './renda-fixa.store';
 import { RendaFixaApiService } from '../../../core/services/renda-fixa-api.service';
 import golden from '../../../core/financial-engine/__fixtures__/golden-renda-mais.json';
-import { LotesRendaFixaResponse } from '../../../core/models/renda-fixa.models';
+import {
+  AtivoRendaFixa,
+  LotesRendaFixaResponse,
+  PosicaoRendaFixa,
+} from '../../../core/models/renda-fixa.models';
 import { calcXIRR } from '../../../core/financial-engine/metrics';
 import { toDayNum } from '../../../core/financial-engine/dates';
 import { trunc2 } from '../../../core/financial-engine/bond';
@@ -440,6 +444,191 @@ describe('RendaFixaStore', () => {
     await pTaxa;
     // Posição deve permanecer do ativo recém-selecionado (ATIVO-2)
     expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+  });
+
+  it('deve adaptar o motor ao selecionar LCI 95% CDI (ir === 0, cust === 0, ganhoMarcacao === 0)', () => {
+    const fakeLciAtivo: AtivoRendaFixa = {
+      id: 10,
+      ticker: 'LCI-DAYCOVAL-2028',
+      nome: 'LCI Banco Daycoval 95% CDI',
+      tipo: 'RendaFixa',
+      setor: 'Renda Fixa',
+      detalhes_rf: {
+        ativo_id: 10,
+        produto: 'LCI',
+        indexador: 'CDI',
+        emissor: 'Banco Daycoval',
+        percentual_indexador: 95,
+        data_vencimento: '2028-10-15',
+        isento_ir: true,
+        cobra_custodia_b3: false,
+      },
+    };
+
+    const fakeLciPos: PosicaoRendaFixa = {
+      ativo: fakeLciAtivo,
+      lotes: [
+        {
+          transacao_id: 101,
+          data_compra: '2026-01-15',
+          taxa_contratada: '95.0',
+          preco_unitario: '1000.00',
+          quantidade_original: '10',
+          quantidade_aberta: '10',
+          custo_aberto_brl: '10000.00',
+          custo_conhecido: true,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '10',
+      custo_total_brl: '10000.00',
+      pendencias: [],
+    };
+
+    store.posicao.set(fakeLciPos);
+    store.ativoId.set(10);
+    store.patchPremissas({
+      refDate: '2026-10-15',
+      cdiRatePct: 10.65,
+    });
+
+    const inst = store.instrument();
+    expect(inst.kind).toBe('CDI_POS');
+    expect(inst.supportsMtM).toBeFalse();
+
+    const venda = store.vendaHoje();
+    expect(venda.bruto).toBeGreaterThan(10000);
+    expect(venda.ir).toBe(0);
+    expect(venda.cust).toBe(0);
+    expect(venda.liqReal).toBe(venda.bruto);
+    expect(venda.liqApp).toBe(venda.bruto);
+
+    const decomp = store.decomposicao();
+    expect(decomp.ganhoMarcacao).toBe(0);
+    expect(decomp.pctCarrego).toBe(1);
+    expect(decomp.pctMarcacao).toBe(0);
+  });
+
+  it('criarTituloManual: deve invocar endpoint de cadastro e atualizar estado', async () => {
+    const fakeNovoAtivo: AtivoRendaFixa = {
+      id: 20,
+      ticker: 'CDB-INTER-2028',
+      nome: 'CDB Banco Inter 110% CDI',
+      tipo: 'RendaFixa',
+      setor: 'Renda Fixa',
+      detalhes_rf: {
+        ativo_id: 20,
+        produto: 'CDB',
+        indexador: 'CDI',
+        emissor: 'Banco Inter',
+        percentual_indexador: 110,
+        data_vencimento: '2028-10-15',
+        isento_ir: false,
+        cobra_custodia_b3: false,
+      },
+    };
+
+    const fakeNovaPos: PosicaoRendaFixa = {
+      ativo: fakeNovoAtivo,
+      lotes: [
+        {
+          transacao_id: 201,
+          data_compra: '2026-10-15',
+          taxa_contratada: '110.0',
+          preco_unitario: '1000.00',
+          quantidade_original: '5',
+          quantidade_aberta: '5',
+          custo_aberto_brl: '5000.00',
+          custo_conhecido: true,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '5',
+      custo_total_brl: '5000.00',
+      pendencias: [],
+    };
+
+    const p = store.criarTituloManual({
+      nome: 'CDB Banco Inter 110% CDI',
+      detalhes: {
+        produto: 'CDB',
+        indexador: 'CDI',
+        emissor: 'Banco Inter',
+        percentual_indexador: 110,
+        isento_ir: false,
+        cobra_custodia_b3: false,
+      },
+      lote_inicial: {
+        carteira_id: 1,
+        data_compra: '2026-10-15',
+        quantidade: 5,
+        preco_unitario: 1000,
+        taxa_contratada: 110,
+      },
+    });
+
+    const reqPost = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/cadastro-manual');
+    expect(reqPost.request.method).toBe('POST');
+    reqPost.flush(fakeNovaPos);
+    await Promise.resolve();
+
+    const reqAtivos = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos');
+    reqAtivos.flush([fakeNovoAtivo]);
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-15T00:00:00Z', posicoes: [fakeNovaPos] });
+
+    const res = await p;
+    expect(res.ativo.ticker).toBe('CDB-INTER-2028');
+    expect(store.ativoId()).toBe(20);
+    expect(store.posicao()?.ativo.ticker).toBe('CDB-INTER-2028');
+    expect(store.instrument().kind).toBe('CDI_POS');
+  });
+
+  it('adicionarLote: deve invocar endpoint de novo lote e atualizar posicao', async () => {
+    const fakePosAtualizada: PosicaoRendaFixa = {
+      ativo: fakeAtivo,
+      lotes: [
+        ...fakeLotesResp.posicoes[0].lotes,
+        {
+          transacao_id: 999,
+          data_compra: '2026-10-15',
+          taxa_contratada: '7.5',
+          preco_unitario: '200.00',
+          quantidade_original: '10',
+          quantidade_aberta: '10',
+          custo_aberto_brl: '2000.00',
+          custo_conhecido: true,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '150.33',
+      custo_total_brl: '26658.92',
+      pendencias: [],
+    };
+
+    store.posicao.set(fakeLotesResp.posicoes[0]);
+    store.ativoId.set(1);
+
+    const p = store.adicionarLote(1, {
+      carteira_id: 1,
+      data_compra: '2026-10-15',
+      quantidade: 10,
+      preco_unitario: 200,
+      taxa_contratada: 7.5,
+    });
+
+    const reqPost = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/ativos/1/lotes');
+    expect(reqPost.request.method).toBe('POST');
+    reqPost.flush(fakePosAtualizada);
+    await Promise.resolve();
+
+    const reqLotes = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1');
+    reqLotes.flush({ carteira_id: 1, gerado_em: '2026-10-15T00:00:00Z', posicoes: [fakePosAtualizada] });
+
+    const res = await p;
+    expect(res.lotes.length).toBe(fakeLotesResp.posicoes[0].lotes.length + 1);
+    expect(store.posicao()?.lotes.length).toBe(fakeLotesResp.posicoes[0].lotes.length + 1);
   });
 });
 

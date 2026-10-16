@@ -15,9 +15,9 @@
   ></app-kpi-card>
 
   <app-kpi-card
-    label="Taxa Média de Compra"
-    [value]="'IPCA + ' + fmtPct(store.posAvgRate() / 100)"
-    [sub]="'Mercado hoje: IPCA + ' + fmtPct(store.calib().rNow)"
+    [label]="isCdi() ? 'Taxa Média do CDI' : 'Taxa Média de Compra'"
+    [value]="isCdi() ? (fmtPctDirect(store.posAvgRate()) + ' do CDI') : store.instrument().kind === 'SELIC_POS' ? ('Selic + ' + fmtPctDirect(store.posAvgRate())) : store.instrument().kind === 'PREFIXADO' ? (fmtPctDirect(store.posAvgRate()) + ' a.a.') : ('IPCA + ' + fmtPct(store.posAvgRate() / 100))"
+    [sub]="isCdi() ? ('CDI Anual: ' + fmtPctDirect(store.premissas().cdiRatePct) + ' a.a.') : ('Mercado hoje: IPCA + ' + fmtPct(store.calib().rNow))"
     tooltipKey="taxaMediaCompra"
   ></app-kpi-card>
 
@@ -44,6 +44,19 @@
     tooltipKey="irRetido"
   ></app-kpi-card>
 </div>
+
+<!-- Card de Equivalência Fiscal LCI/LCA vs CDB (% do CDI) -->
+@if (isCdi()) {
+  <div class="card equivalence-card">
+    <div class="equiv-header">
+      <span class="icon">⚖️</span>
+      <h3>Equivalência Fiscal de Renda Fixa (CDB vs LCI / LCA)</h3>
+    </div>
+    <div class="equiv-body">
+      <p class="equiv-text">{{ equivalenciaFiscal().texto }}</p>
+    </div>
+  </div>
+}
 
 <!-- Comparativo de Conferência App Tesouro vs Líquido Real -->
 <div class="card compare-box">
@@ -164,13 +177,29 @@
           @let sched = getIRSchedule(part.days);
           <tr>
             <td>{{ formatDateBRL(part.lot.date) }}</td>
-            <td><strong>IPCA + {{ fmtPctDirect(part.lot.rate) }}</strong></td>
+            <td>
+              @if (store.instrument().kind === 'CDI_POS') {
+                <strong>{{ fmtPctDirect(part.lot.rate) }} do CDI</strong>
+              } @else if (store.instrument().kind === 'SELIC_POS') {
+                <strong>Selic + {{ fmtPctDirect(part.lot.rate) }}</strong>
+              } @else if (store.instrument().kind === 'PREFIXADO') {
+                <strong>{{ fmtPctDirect(part.lot.rate) }} a.a.</strong>
+              } @else {
+                <strong>IPCA + {{ fmtPctDirect(part.lot.rate) }}</strong>
+              }
+            </td>
             <td>{{ fmtBRL(part.lot.price) }}</td>
             <td>{{ fmtNum(part.q) }}</td>
             <td>{{ fmtBRL(part.custo) }}</td>
             <td>{{ part.days }} d</td>
             <td>{{ fmtBRL(part.bruto) }}</td>
-            <td>{{ fmtBRL(part.cust) }}</td>
+            <td>
+              @if (part.cust > 0) {
+                {{ fmtBRL(part.cust) }}
+              } @else {
+                <span class="badge badge-neutral" style="font-size: 11px;">R$ 0,00</span>
+              }
+            </td>
             <td>
               <div>{{ fmtBRL(part.bruto - part.liqApp) }}</div>
               <div class="badge-row">

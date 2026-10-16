@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RendaFixaStore } from '../../state/renda-fixa.store';
@@ -28,6 +28,35 @@ export class PosicaoPepsComponent {
   readonly taxaDrafts: Record<number, number> = {};
   readonly salvandoId = signal<number | null>(null);
   readonly salvarErro = signal<string | null>(null);
+
+  readonly isentoIr = computed(() => Boolean(this.store.posicao()?.ativo?.detalhes_rf?.isento_ir));
+  readonly isCdi = computed(() => this.store.instrument().kind === 'CDI_POS');
+
+  readonly equivalenciaFiscal = computed(() => {
+    const isento = this.isentoIr();
+    const avgRate = this.store.posAvgRate() || Number(this.store.posicao()?.ativo?.detalhes_rf?.percentual_indexador) || 100;
+    if (isento) {
+      const equiv15 = avgRate / (1 - 0.15);
+      const equiv225 = avgRate / (1 - 0.225);
+      return {
+        isento: true,
+        taxa: avgRate,
+        equiv15,
+        equiv225,
+        texto: `${avgRate.toFixed(1).replace('.', ',')}% do CDI isento equivale a ${equiv15.toFixed(1).replace('.', ',')}% do CDI de um CDB tributado na alíquota de 15% (e ${equiv225.toFixed(1).replace('.', ',')}% na alíquota inicial de 22,5%).`,
+      };
+    } else {
+      const equivIsenta15 = avgRate * (1 - 0.15);
+      const equivIsenta225 = avgRate * (1 - 0.225);
+      return {
+        isento: false,
+        taxa: avgRate,
+        equivIsenta15,
+        equivIsenta225,
+        texto: `${avgRate.toFixed(1).replace('.', ',')}% do CDI tributado em CDB equivale a ${equivIsenta15.toFixed(1).replace('.', ',')}% do CDI de uma LCI/LCA isenta de IR na alíquota de 15% (e ${equivIsenta225.toFixed(1).replace('.', ',')}% na alíquota de 22,5%).`,
+      };
+    }
+  });
 
   getIRSchedule(days: number) {
     return getIRSchedule(days);
