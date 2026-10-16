@@ -386,3 +386,31 @@ def test_cadastro_manual_sem_lote_inicial_e_taxas_nulas(client):
     assert res_taxa_invalida.status_code == 422
 
 
+def test_cadastro_manual_sem_ticker_e_sem_emissor(client):
+    """Garante que o cadastro manual sem ticker e sem emissor não gera TypeError no slug."""
+    res = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "nome": "CDB Genérico Sem Emissor 105% CDI",
+        "ticker": None,
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "105.0000",
+            "emissor": None,
+            "data_vencimento": "2028-06-01",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2026-10-15",
+            "quantidade": "2.00000000",
+            "preco_unitario": "1000.00000000",
+            "taxa_contratada": "105.0000",
+            "taxas": "0.00000000",
+        },
+    })
+    assert res.status_code == 201, res.text
+    data = res.json()
+    assert data["ativo"]["ticker"] == "CDB-EMISSOR-20280601"
+    assert len(data["lotes"]) == 1
+    assert Decimal(str(data["quantidade_total"])) == Decimal("2.00000000")
+
+

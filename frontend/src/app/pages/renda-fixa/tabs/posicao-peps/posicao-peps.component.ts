@@ -34,7 +34,11 @@ export class PosicaoPepsComponent {
 
   readonly equivalenciaFiscal = computed(() => {
     const isento = this.isentoIr();
-    const avgRate = this.store.posAvgRate() || Number(this.store.posicao()?.ativo?.detalhes_rf?.percentual_indexador) || 100;
+    const unidade = this.isCdi() ? '% do CDI' : '% a.a.';
+    const avgRate =
+      this.store.posAvgRate() ||
+      Number(this.store.posicao()?.ativo?.detalhes_rf?.percentual_indexador) ||
+      100;
     if (isento) {
       const equiv15 = avgRate / (1 - 0.15);
       const equiv225 = avgRate / (1 - 0.225);
@@ -43,7 +47,7 @@ export class PosicaoPepsComponent {
         taxa: avgRate,
         equiv15,
         equiv225,
-        texto: `${avgRate.toFixed(1).replace('.', ',')}% do CDI isento equivale a ${equiv15.toFixed(1).replace('.', ',')}% do CDI de um CDB tributado na alíquota de 15% (e ${equiv225.toFixed(1).replace('.', ',')}% na alíquota inicial de 22,5%).`,
+        texto: `${avgRate.toFixed(1).replace('.', ',')}${unidade} isento equivale a ${equiv15.toFixed(1).replace('.', ',')}${unidade} de um título tributado na alíquota de 15% (e ${equiv225.toFixed(1).replace('.', ',')}${unidade} na alíquota inicial de 22,5%).`,
       };
     } else {
       const equivIsenta15 = avgRate * (1 - 0.15);
@@ -53,7 +57,7 @@ export class PosicaoPepsComponent {
         taxa: avgRate,
         equivIsenta15,
         equivIsenta225,
-        texto: `${avgRate.toFixed(1).replace('.', ',')}% do CDI tributado em CDB equivale a ${equivIsenta15.toFixed(1).replace('.', ',')}% do CDI de uma LCI/LCA isenta de IR na alíquota de 15% (e ${equivIsenta225.toFixed(1).replace('.', ',')}% na alíquota de 22,5%).`,
+        texto: `${avgRate.toFixed(1).replace('.', ',')}${unidade} tributado em CDB equivale a ${equivIsenta15.toFixed(1).replace('.', ',')}${unidade} de uma LCI/LCA isenta de IR na alíquota de 15% (e ${equivIsenta225.toFixed(1).replace('.', ',')}${unidade} na alíquota de 22,5%).`,
       };
     }
   });
@@ -109,7 +113,7 @@ export class PosicaoPepsComponent {
 
   async salvarTaxa(lote: LoteAbertoDto) {
     const val = this.taxaDrafts[lote.transacao_id];
-    if (val === undefined || isNaN(val) || val <= 0) {
+    if (val === undefined || isNaN(val) || val < 0) {
       this.salvarErro.set('Por favor, informe uma taxa contratada válida em % a.a.');
       return;
     }

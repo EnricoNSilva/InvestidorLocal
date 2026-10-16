@@ -91,8 +91,9 @@ def cadastrar_renda_fixa_manual(
         ticker = payload.ticker.strip().upper()
     else:
         prod_str = payload.detalhes.produto.value.replace("TESOURO_", "TD-")
+        emissor_raw = (payload.detalhes.emissor or "").strip()
         emissor_norm = (
-            unicodedata.normalize("NFKD", payload.detalhes.emissor).encode("ASCII", "ignore").decode("ASCII")
+            unicodedata.normalize("NFKD", emissor_raw).encode("ASCII", "ignore").decode("ASCII")
         )
         emissor_slug = re.sub(r"[^A-Za-z0-9]", "", emissor_norm).upper() or "EMISSOR"
         date_slug = (

@@ -594,7 +594,7 @@ export class NovoTituloRfModalComponent {
 
   // Form Fields - Lote
   incluirLoteInicial = true;
-  loteData = new Date().toISOString().split('T')[0];
+  loteData = this.toLocalIsoDate(new Date());
   lotePreco = 1000;
   loteQtd = 1;
   loteTaxa = 110;
@@ -607,6 +607,13 @@ export class NovoTituloRfModalComponent {
     const defaultAtivo = this.store.ativoId() ?? this.store.ativos()[0]?.id ?? null;
     this.selectedAtivoId = defaultAtivo;
     this.setDefaultVencimento(3);
+  }
+
+  private toLocalIsoDate(d: Date): string {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   setMode(m: ModalMode): void {
@@ -694,7 +701,7 @@ export class NovoTituloRfModalComponent {
   private setDefaultVencimento(years: number): void {
     const d = new Date();
     d.setFullYear(d.getFullYear() + years);
-    this.dataVencimento = d.toISOString().split('T')[0];
+    this.dataVencimento = this.toLocalIsoDate(d);
   }
 
   isFormValid(): boolean {

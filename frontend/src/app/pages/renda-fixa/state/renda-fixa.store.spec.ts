@@ -630,5 +630,154 @@ describe('RendaFixaStore', () => {
     expect(res.lotes.length).toBe(fakeLotesResp.posicoes[0].lotes.length + 1);
     expect(store.posicao()?.lotes.length).toBe(fakeLotesResp.posicoes[0].lotes.length + 1);
   });
+
+  it('effectiveRefDN deve incluir lote recém-comprado quando data_compra > premissas.refDate', () => {
+    const fakeCdbAtivo: AtivoRendaFixa = {
+      id: 30,
+      ticker: 'CDB-RECEM-COMPRADO',
+      nome: 'CDB Recém Comprado 110% CDI',
+      tipo: 'RendaFixa',
+      setor: 'Renda Fixa',
+      detalhes_rf: {
+        ativo_id: 30,
+        produto: 'CDB',
+        indexador: 'CDI',
+        emissor: 'Banco Inter',
+        percentual_indexador: 110,
+        data_vencimento: '2029-10-15',
+        isento_ir: false,
+        cobra_custodia_b3: false,
+      },
+    };
+
+    // Premissa refDate está no dia anterior (ex: snapshot do último pregão 2026-10-14)
+    // enquanto o lote foi cadastrado em 2026-10-16
+    store.patchPremissas({
+      refDate: '2026-10-14',
+      cdiRatePct: 10.65,
+    });
+
+    store.posicao.set({
+      ativo: fakeCdbAtivo,
+      lotes: [
+        {
+          transacao_id: 301,
+          data_compra: '2026-10-16',
+          taxa_contratada: '110.0',
+          preco_unitario: '1000.00',
+          quantidade_original: '3',
+          quantidade_aberta: '3',
+          custo_aberto_brl: '3000.00',
+          custo_conhecido: true,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '3',
+      custo_total_brl: '3000.00',
+      pendencias: [],
+    });
+
+    expect(store.effectiveRefDN()).toBe(toDayNum('2026-10-16'));
+    const venda = store.vendaHoje();
+    expect(venda.q).toBe(3);
+    expect(venda.bruto).toBe(3000);
+    expect(venda.liqReal).toBe(3000);
+  });
+
+  it('sensibilidade deve responder a choques para TESOURO_SELIC (SELIC_POS) e TESOURO_PREFIXADO (PREFIXADO com MtM)', () => {
+    // 1. TESOURO_SELIC
+    const selicAtivo: AtivoRendaFixa = {
+      id: 40,
+      ticker: 'LFT-2029',
+      nome: 'Tesouro Selic 2029',
+      tipo: 'RendaFixa',
+      setor: 'Renda Fixa',
+      detalhes_rf: {
+        ativo_id: 40,
+        produto: 'TESOURO_SELIC',
+        indexador: 'SELIC',
+        emissor: 'Tesouro Nacional',
+        data_vencimento: '2029-03-01',
+        isento_ir: false,
+        cobra_custodia_b3: true,
+      },
+    };
+
+    store.patchPremissas({
+      refDate: '2026-10-15',
+      cdiRatePct: 10.75,
+    });
+
+    store.posicao.set({
+      ativo: selicAtivo,
+      lotes: [
+        {
+          transacao_id: 401,
+          data_compra: '2026-01-15',
+          taxa_contratada: '0.05',
+          preco_unitario: '14000.00',
+          quantidade_original: '1',
+          quantidade_aberta: '1',
+          custo_aberto_brl: '14000.00',
+          custo_conhecido: true,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '1',
+      custo_total_brl: '14000.00',
+      pendencias: [],
+    });
+
+    const rowsSelic = store.sensibilidade();
+    expect(rowsSelic.length).toBe(8);
+    // Choques negativos na Selic devem reduzir o bruto no vencimento; choques positivos devem aumentar
+    expect(rowsSelic[0].brutoDiff).toBeLessThan(0);
+    expect(rowsSelic[rowsSelic.length - 1].brutoDiff).toBeGreaterThan(0);
+
+    // 2. TESOURO_PREFIXADO (Bullet com MtM)
+    const preAtivo: AtivoRendaFixa = {
+      id: 41,
+      ticker: 'LTN-2029',
+      nome: 'Tesouro Prefixado 2029',
+      tipo: 'RendaFixa',
+      setor: 'Renda Fixa',
+      detalhes_rf: {
+        ativo_id: 41,
+        produto: 'TESOURO_PREFIXADO',
+        indexador: 'PREFIXADO',
+        emissor: 'Tesouro Nacional',
+        data_vencimento: '2029-01-01',
+        isento_ir: false,
+        cobra_custodia_b3: true,
+      },
+    };
+
+    store.posicao.set({
+      ativo: preAtivo,
+      lotes: [
+        {
+          transacao_id: 402,
+          data_compra: '2026-01-15',
+          taxa_contratada: '12.50',
+          preco_unitario: '750.00',
+          quantidade_original: '10',
+          quantidade_aberta: '10',
+          custo_aberto_brl: '7500.00',
+          custo_conhecido: true,
+        },
+      ],
+      fluxos_recebidos: [],
+      quantidade_total: '10',
+      custo_total_brl: '7500.00',
+      pendencias: [],
+    });
+
+    const rowsPre = store.sensibilidade();
+    expect(rowsPre.length).toBe(8);
+    // Na marcação a mercado de prefixado, queda na taxa de mercado (shock < 0) aumenta o PU hoje (brutoDiff > 0)
+    expect(rowsPre[0].brutoDiff).toBeGreaterThan(0);
+    expect(rowsPre[rowsPre.length - 1].brutoDiff).toBeLessThan(0);
+  });
 });
+
 

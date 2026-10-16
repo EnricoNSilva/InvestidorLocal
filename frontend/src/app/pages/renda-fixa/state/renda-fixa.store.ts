@@ -179,12 +179,25 @@ export class RendaFixaStore {
 
   readonly vnaHoje = computed(() => this.calib().Fref);
 
+  readonly effectiveRefDN = computed(() => {
+    const baseDN = this.calib().refDN;
+    const inst = this.instrument();
+    if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
+      return baseDN;
+    }
+    const maxLotDN = this.lots().reduce(
+      (max, l) => Math.max(max, typeof l.dn === 'number' ? l.dn : toDayNum(l.date)),
+      baseDN
+    );
+    return Math.min(maxLotDN, this.maxSimDate());
+  });
+
   readonly simDN = computed(() => {
     const s = this.sim();
     const dn =
       s.simDN && s.simDN > 0
         ? s.simDN
-        : addYearsDN(this.calib().refDN, s.simYears || 1.0);
+        : addYearsDN(this.effectiveRefDN(), s.simYears || 1.0);
     return Math.min(dn, this.maxSimDate());
   });
 
@@ -204,17 +217,14 @@ export class RendaFixaStore {
   readonly pricingCtx = computed<PricingContext>(() => {
     const prem = this.premissas();
     const cdiDec = prem.cdiRatePct / 100;
-    const selicDec = this.mercadoMacro()?.selic?.valor_anualizado_pct
-      ? Number(this.mercadoMacro()!.selic.valor_anualizado_pct) / 100
-      : cdiDec + 0.001;
     const ipcaDec = prem.ipcaProj / 100;
 
     return {
       marketRate: this.calib().rNow,
-      refDN: this.calib().refDN,
+      refDN: this.effectiveRefDN(),
       vnaFactor: this.vnaHoje(),
       cdiAnual: cdiDec,
-      selicAnual: selicDec,
+      selicAnual: cdiDec,
       ipcaAnual: ipcaDec,
     };
   });
@@ -244,7 +254,7 @@ export class RendaFixaStore {
     }
     return simulateSell({
       lots: this.lots(),
-      t: this.calib().refDN,
+      t: this.effectiveRefDN(),
       instrument: inst,
       ctx: this.pricingCtx(),
     });
@@ -295,7 +305,7 @@ export class RendaFixaStore {
     }
     return simulateSell({
       lots: this.lots(),
-      t: this.calib().refDN,
+      t: this.effectiveRefDN(),
       instrument: inst,
       ctx: this.pricingCtx(),
       qtyToSell: qty,
@@ -348,7 +358,7 @@ export class RendaFixaStore {
       if (f.tipo === 'SELL') continue;
       flows.push({ dn: toDayNum(f.data), amount: Number(f.valor_brl) });
     }
-    flows.push({ dn: this.calib().refDN, amount: this.vendaHoje().liqReal });
+    flows.push({ dn: this.effectiveRefDN(), amount: this.vendaHoje().liqReal });
     return calcXIRR(flows);
   });
 
@@ -420,7 +430,7 @@ export class RendaFixaStore {
     const c = this.calib();
     const inst = this.instrument();
     const res = buildProjectionCurves({
-      refDN: c.refDN,
+      refDN: this.effectiveRefDN(),
       Fref: c.Fref,
       lots: this.lots(),
       custodyConfig: p.custody,
@@ -443,7 +453,7 @@ export class RendaFixaStore {
 
   readonly sensibilidade = computed<SensitivityRow[]>(() => {
     const inst = this.instrument();
-    if (inst.supportsMtM) {
+    if (inst.kind === 'RENDA_MAIS' || inst.kind === 'EDUCA_MAIS') {
       return calcSensitivityTable({
         refDN: this.calib().refDN,
         rNow: this.calib().rNow,
@@ -454,9 +464,46 @@ export class RendaFixaStore {
       });
     }
 
+    if (inst.supportsMtM) {
+      const baseRateDec =
+        this.posAvgRate() > 0 ? this.posAvgRate() / 100 : this.calib().rNow;
+      const baseCtx: PricingContext = { ...this.pricingCtx(), marketRate: baseRateDec };
+      const baseRes = simulateSell({
+        lots: this.lots(),
+        t: this.effectiveRefDN(),
+        instrument: inst,
+        ctx: baseCtx,
+      });
+      const shocks = [-2.0, -1.5, -1.0, -0.5, 0.5, 1.0, 1.5, 2.0];
+      return shocks.map((s) => {
+        const newRate = Math.max(0.005, baseRateDec + s / 100);
+        const shockRes = simulateSell({
+          lots: this.lots(),
+          t: this.effectiveRefDN(),
+          instrument: inst,
+          ctx: { ...baseCtx, marketRate: newRate },
+        });
+        return {
+          shock: s,
+          newRate,
+          newPU: shockRes.pu,
+          bruto: shockRes.bruto,
+          brutoDiff: shockRes.bruto - baseRes.bruto,
+          liqApp: shockRes.liqApp,
+          liqDiff: shockRes.liqApp - baseRes.liqApp,
+          puVarPct: baseRes.pu > 0 ? (shockRes.pu - baseRes.pu) / baseRes.pu : 0,
+          liqReturnPct: calcReturnPct(shockRes.liqApp, shockRes.custo),
+        };
+      });
+    }
+
     const baseCdiPct = this.premissas().cdiRatePct;
     const baseCdiDec = baseCdiPct / 100;
-    const baseCtx: PricingContext = { ...this.pricingCtx(), cdiAnual: baseCdiDec };
+    const baseCtx: PricingContext = {
+      ...this.pricingCtx(),
+      cdiAnual: baseCdiDec,
+      selicAnual: baseCdiDec,
+    };
     const baseRes = simulateSell({
       lots: this.lots(),
       t: this.maxSimDate(),
@@ -468,7 +515,11 @@ export class RendaFixaStore {
     return shocks.map((s) => {
       const shockedCdiPct = Math.max(0.5, baseCdiPct + s);
       const shockedCdiDec = shockedCdiPct / 100;
-      const shockCtx: PricingContext = { ...this.pricingCtx(), cdiAnual: shockedCdiDec };
+      const shockCtx: PricingContext = {
+        ...this.pricingCtx(),
+        cdiAnual: shockedCdiDec,
+        selicAnual: shockedCdiDec,
+      };
       const shockRes = simulateSell({
         lots: this.lots(),
         t: this.maxSimDate(),
@@ -671,7 +722,7 @@ export class RendaFixaStore {
     this.ativoId.set(ativoId);
     this.loading.set(true);
     this.error.set(null);
-    this.patchSim({ qtyToSell: '' });
+    this.patchSim({ qtyToSell: '', simDN: 0 });
 
     try {
       const resp = await firstValueFrom(
@@ -737,6 +788,7 @@ export class RendaFixaStore {
       this.todasPosicoes.set(lotesResp.posicoes ?? []);
       this.ativoId.set(novaPos.ativo.id);
       this.posicao.set(novaPos);
+      this.patchSim({ qtyToSell: '', simDN: 0 });
       return novaPos;
     } catch (err: any) {
       if (seq === this.reqSeq) {

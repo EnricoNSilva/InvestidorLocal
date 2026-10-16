@@ -16,7 +16,7 @@ PRODUTOS_ISENTOS_PF = {ProdutoRendaFixa.LCI, ProdutoRendaFixa.LCA}
 class DetalhesRendaFixaBase(BaseModel):
     produto: ProdutoRendaFixa
     indexador: Indexador
-    emissor: str = "Tesouro Nacional"
+    emissor: Optional[str] = None
     percentual_indexador: Optional[Decimal] = Field(default=None, gt=0, max_digits=8, decimal_places=4)
     data_emissao: Optional[date] = None
     data_vencimento: Optional[date] = None
@@ -30,6 +30,8 @@ class DetalhesRendaFixaBase(BaseModel):
 
     @model_validator(mode="after")
     def _regras_por_produto(self):
+        if not self.emissor or not self.emissor.strip():
+            self.emissor = "Tesouro Nacional" if self.produto.value.startswith("TESOURO_") else "Emissor"
         if self.isento_ir is None:
             self.isento_ir = self.produto in PRODUTOS_ISENTOS_PF
         if self.cobra_custodia_b3 is None:
