@@ -5,6 +5,9 @@ import { RendaFixaStore } from './renda-fixa.store';
 import { RendaFixaApiService } from '../../../core/services/renda-fixa-api.service';
 import golden from '../../../core/financial-engine/__fixtures__/golden-renda-mais.json';
 import { LotesRendaFixaResponse } from '../../../core/models/renda-fixa.models';
+import { calcXIRR } from '../../../core/financial-engine/metrics';
+import { toDayNum } from '../../../core/financial-engine/dates';
+import { trunc2 } from '../../../core/financial-engine/bond';
 
 describe('RendaFixaStore', () => {
   let store: RendaFixaStore;
@@ -214,4 +217,229 @@ describe('RendaFixaStore', () => {
 
     expect(store.simDNClamped()).toBe(targetDN);
   });
+
+  it('posTIR e simTIR devem ignorar fluxos de SELL e posTIR deve utilizar liqReal', () => {
+    store.patchPremissas({
+      refDate: '2026-10-05',
+      refPrice: 243.38,
+      refRate: '',
+      ipcaCal: 4.5,
+      ipcaProj: 4.5,
+      custody: { custMode: 'single', cust1: 0.5 },
+    });
+
+    const posSemSell = JSON.parse(JSON.stringify(fakeLotesResp.posicoes[0]));
+    posSemSell.fluxos_recebidos = [
+      {
+        transacao_id: 99,
+        data: '2026-05-01',
+        tipo: 'JUROS_CUPOM',
+        valor_brl: '100.00',
+      },
+    ];
+
+    store.posicao.set(posSemSell);
+    const tirSemSell = store.posTIR();
+    const simTirSemSell = store.simTIR();
+
+    // Adiciona fluxo de SELL
+    const posComSell = JSON.parse(JSON.stringify(posSemSell));
+    posComSell.fluxos_recebidos.push({
+      transacao_id: 100,
+      data: '2026-06-01',
+      tipo: 'SELL',
+      valor_brl: '5000.00',
+    });
+
+    store.posicao.set(posComSell);
+    const tirComSell = store.posTIR();
+    const simTirComSell = store.simTIR();
+
+    // O fluxo SELL deve ser ignorado: posTIR e simTIR devem ser exatamente iguais aos sem SELL
+    expect(tirComSell).toBe(tirSemSell);
+    expect(simTirComSell).toBe(simTirSemSell);
+
+    // Validação matemática estrita de que posTIR utiliza liqReal e não liqApp
+    const defaultLots = store.lots();
+    const flowsReal = [
+      ...defaultLots.map((l) => ({
+        dn: typeof l.dn === 'number' ? l.dn : toDayNum(l.date),
+        amount: -trunc2(l.qty * l.price),
+      })),
+      { dn: toDayNum('2026-05-01'), amount: 100 },
+      { dn: store.calib().refDN, amount: store.vendaHoje().liqReal },
+    ];
+    const expectedTirReal = calcXIRR(flowsReal);
+
+    const flowsApp = [
+      ...defaultLots.map((l) => ({
+        dn: typeof l.dn === 'number' ? l.dn : toDayNum(l.date),
+        amount: -trunc2(l.qty * l.price),
+      })),
+      { dn: toDayNum('2026-05-01'), amount: 100 },
+      { dn: store.calib().refDN, amount: store.vendaHoje().liqApp },
+    ];
+    const expectedTirApp = calcXIRR(flowsApp);
+
+    expect(store.vendaHoje().liqReal).not.toBe(store.vendaHoje().liqApp);
+    expect(store.vendaHoje().liqReal).toBeLessThan(store.vendaHoje().liqApp);
+    expect(tirComSell).toBe(expectedTirReal);
+    expect(tirComSell).not.toBe(expectedTirApp);
+    expect(Math.abs(tirComSell - expectedTirReal)).toBeLessThanOrEqual(1e-12);
+  });
+
+  it('selecionarAtivo reseta qtyToSell, limpa erro e descarta respostas assíncronas concorrentes', async () => {
+    store.patchSim({ qtyToSell: 50 });
+    store.error.set('Erro residual anterior');
+    expect(store.sim().qtyToSell).toBe(50);
+    expect(store.error()).toBe('Erro residual anterior');
+
+    const fakePosicao1: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 1, ticker: 'ATIVO-1' } }],
+    };
+
+    const fakePosicao2: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 2, ticker: 'ATIVO-2' } }],
+    };
+
+    // 1. Dispara selecionarAtivo(1)
+    const p1 = store.selecionarAtivo(1);
+    expect(store.sim().qtyToSell).toBe('');
+    expect(store.error()).toBeNull();
+    expect(store.loading()).toBeTrue();
+
+    // 2. Dispara selecionarAtivo(2) antes de 1 responder
+    store.patchSim({ qtyToSell: 30 });
+    const p2 = store.selecionarAtivo(2);
+    expect(store.sim().qtyToSell).toBe('');
+    expect(store.loading()).toBeTrue();
+
+    const req1 = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=1');
+    const req2 = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=2');
+
+    // 3. Resposta de 1 chega DEPOIS de 2 ter sido disparado
+    req1.flush(fakePosicao1);
+    await p1;
+
+    // A posição NÃO deve ter sido sobrescrita por fakePosicao1 e loading deve continuar true pois p2 está pendente
+    expect(store.posicao()).toBeNull();
+    expect(store.loading()).toBeTrue();
+
+    // 4. Resposta de 2 chega
+    req2.flush(fakePosicao2);
+    await p2;
+
+    expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+    expect(store.loading()).toBeFalse();
+    expect(store.error()).toBeNull();
+  });
+
+  it('selecionarAtivo: erro em requisição obsoleta não deve sobrescrever erro nem loading', async () => {
+    const fakePosicao2: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 2, ticker: 'ATIVO-2' } }],
+    };
+
+    const p1 = store.selecionarAtivo(1);
+    const p2 = store.selecionarAtivo(2);
+
+    const req1 = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=1');
+    const req2 = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=2');
+
+    // req1 falha com 500
+    req1.flush('Server Error', { status: 500, statusText: 'Internal Server Error' });
+    await p1;
+
+    // req1 era obsoleto, então error deve permanecer nulo e loading true
+    expect(store.error()).toBeNull();
+    expect(store.loading()).toBeTrue();
+
+    // req2 tem sucesso
+    req2.flush(fakePosicao2);
+    await p2;
+
+    expect(store.error()).toBeNull();
+    expect(store.loading()).toBeFalse();
+    expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+  });
+
+  it('selecionarAtivo: resposta de requisição anterior que chega após a requisição mais recente ter finalizado não deve sobrescrever a posição', async () => {
+    const fakePosicao1: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 1, ticker: 'ATIVO-1' } }],
+    };
+
+    const fakePosicao2: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 2, ticker: 'ATIVO-2' } }],
+    };
+
+    const p1 = store.selecionarAtivo(1);
+    const p2 = store.selecionarAtivo(2);
+
+    const req1 = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=1');
+    const req2 = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=2');
+
+    // Resposta 2 chega primeiro e tem sucesso
+    req2.flush(fakePosicao2);
+    await p2;
+
+    expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+    expect(store.loading()).toBeFalse();
+
+    // Resposta 1 (antiga) chega atrasada depois que 2 já completou
+    req1.flush(fakePosicao1);
+    await p1;
+
+    // A posição continua sendo ATIVO-2 e loading continua false
+    expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+    expect(store.loading()).toBeFalse();
+  });
+
+  it('salvarTaxa: recarga defasada não deve sobrescrever ativo selecionado posteriormente', async () => {
+    const fakePosicao1: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 1, ticker: 'ATIVO-1' } }],
+    };
+    const fakePosicao2: LotesRendaFixaResponse = {
+      carteira_id: 1,
+      gerado_em: '2026-10-05T00:00:00Z',
+      posicoes: [{ ...fakeLotesResp.posicoes[0], ativo: { ...fakeAtivo, id: 2, ticker: 'ATIVO-2' } }],
+    };
+
+    store.posicao.set(fakePosicao1.posicoes[0]);
+    store.ativoId.set(1);
+
+    // Inicia salvarTaxa
+    const pTaxa = store.salvarTaxa(1, 7.5);
+    expect(store.loading()).toBeTrue();
+
+    // Usuário troca de ativo antes de salvarTaxa terminar
+    const pSel = store.selecionarAtivo(2);
+
+    const reqPatch = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/transacoes/1/taxa');
+    const reqSel = httpMock.expectOne('http://127.0.0.1:8000/api/v1/renda-fixa/lotes?carteira_id=1&ativo_id=2');
+
+    // Sucesso no patch de salvarTaxa
+    reqPatch.flush({ id: 1, taxa_contratada: '7.5000' });
+    // Resposta de selecionarAtivo chega
+    reqSel.flush(fakePosicao2);
+    await pSel;
+
+    expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+    expect(store.loading()).toBeFalse();
+
+    await pTaxa;
+    // Posição deve permanecer do ativo recém-selecionado (ATIVO-2)
+    expect(store.posicao()?.ativo.ticker).toBe('ATIVO-2');
+  });
 });
+

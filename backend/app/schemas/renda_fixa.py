@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Generic, List, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 T = TypeVar("T")
 
@@ -92,6 +92,29 @@ class LotesRendaFixaResponse(BaseModel):
 
 class TaxaContratadaPatch(BaseModel):
     taxa_contratada: Decimal = Field(ge=Decimal("-10"), le=Decimal("1000"), max_digits=8, decimal_places=4)
+
+
+class LoteManualCreate(BaseModel):
+    carteira_id: int = 1
+    data_compra: date
+    quantidade: Decimal = Field(gt=Decimal("0"), max_digits=24, decimal_places=8)
+    preco_unitario: Decimal = Field(gt=Decimal("0"), max_digits=24, decimal_places=8)
+    taxa_contratada: Decimal = Field(ge=Decimal("-10"), le=Decimal("1000"), max_digits=8, decimal_places=4)
+    taxas: Optional[Decimal] = Field(default=Decimal("0"), ge=Decimal("0"), max_digits=18, decimal_places=8)
+
+    @field_validator("taxas", mode="before")
+    @classmethod
+    def _coerce_taxas(cls, v: Any) -> Decimal:
+        if v is None:
+            return Decimal("0")
+        return v
+
+
+class CadastroManualRendaFixaRequest(BaseModel):
+    ticker: Optional[str] = Field(default=None, max_length=30)  # se None, gera ex.: CDB-INTER-20280115
+    nome: str = Field(min_length=2, max_length=150)
+    detalhes: DetalhesRendaFixaUpsert
+    lote_inicial: Optional[LoteManualCreate] = None
 
 
 class CotacaoTesouroItem(BaseModel):

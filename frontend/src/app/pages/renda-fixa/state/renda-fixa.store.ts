@@ -61,6 +61,7 @@ export function scheduleFor(detalhes?: DetalhesRendaFixa | null): AnnuitySchedul
 })
 export class RendaFixaStore {
   private readonly api = inject(RendaFixaApiService);
+  private reqSeq = 0;
 
   // ---------- Estado de Entrada (Writable Signals) ----------
   readonly carteiraId = signal<number>(1);
@@ -229,9 +230,10 @@ export class RendaFixaStore {
       amount: -trunc2(l.qty * l.price),
     }));
     for (const f of this.posicao()?.fluxos_recebidos ?? []) {
+      if (f.tipo === 'SELL') continue;
       flows.push({ dn: toDayNum(f.data), amount: Number(f.valor_brl) });
     }
-    flows.push({ dn: this.calib().refDN, amount: this.vendaHoje().liqApp });
+    flows.push({ dn: this.calib().refDN, amount: this.vendaHoje().liqReal });
     return calcXIRR(flows);
   });
 
@@ -261,6 +263,7 @@ export class RendaFixaStore {
       amount: -trunc2(p.q * p.lot.price),
     }));
     for (const f of this.posicao()?.fluxos_recebidos ?? []) {
+      if (f.tipo === 'SELL') continue;
       flows.push({ dn: toDayNum(f.data), amount: Number(f.valor_brl) });
     }
     flows.push({ dn: this.simDNClamped(), amount: this.vendaSim().liqReal });
@@ -384,12 +387,14 @@ export class RendaFixaStore {
 
   // ---------- Ações ----------
   async carregar(): Promise<void> {
+    const seq = ++this.reqSeq;
     this.loading.set(true);
     this.error.set(null);
 
     try {
       // 1. Carrega ativos de renda fixa
       const ativos = await firstValueFrom(this.api.listarAtivos());
+      if (seq !== this.reqSeq) return;
       this.ativos.set(ativos);
 
       if (ativos.length > 0 && this.ativoId() === null) {
@@ -407,6 +412,7 @@ export class RendaFixaStore {
       const lotesResp = await firstValueFrom(
         this.api.obterLotesPeps(this.carteiraId(), this.ativoId() ?? undefined)
       );
+      if (seq !== this.reqSeq) return;
       if (lotesResp.posicoes && lotesResp.posicoes.length > 0) {
         this.posicao.set(lotesResp.posicoes[0]);
         if (this.ativoId() === null) {
@@ -422,6 +428,7 @@ export class RendaFixaStore {
           firstValueFrom(this.api.obterMercadoTesouro(false)),
           firstValueFrom(this.api.obterMercadoMacro(false)),
         ]);
+        if (seq !== this.reqSeq) return;
         this.mercadoTesouro.set(tesouro);
         this.mercadoMacro.set(macro);
 
@@ -459,46 +466,66 @@ export class RendaFixaStore {
         console.warn('Mercado offline ou indisponível:', errMercado);
       }
     } catch (err: any) {
-      console.error('Erro ao carregar dados de renda fixa:', err);
-      this.error.set(err?.message || 'Falha ao carregar dados de Renda Fixa');
+      if (seq === this.reqSeq) {
+        console.error('Erro ao carregar dados de renda fixa:', err);
+        this.error.set(err?.message || 'Falha ao carregar dados de Renda Fixa');
+      }
     } finally {
-      this.loading.set(false);
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
     }
   }
 
   async selecionarAtivo(ativoId: number): Promise<void> {
+    const seq = ++this.reqSeq;
     this.ativoId.set(ativoId);
     this.loading.set(true);
+    this.error.set(null);
+    this.patchSim({ qtyToSell: '' });
+
     try {
       const resp = await firstValueFrom(
         this.api.obterLotesPeps(this.carteiraId(), ativoId)
       );
+      if (seq !== this.reqSeq) return;
       this.posicao.set(resp.posicoes?.[0] ?? null);
     } catch (err: any) {
-      this.error.set(err?.message || 'Erro ao carregar ativo');
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao carregar ativo');
+      }
     } finally {
-      this.loading.set(false);
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
     }
   }
 
   async salvarTaxa(transacaoId: number, taxaPct: number): Promise<void> {
+    const seq = ++this.reqSeq;
     this.loading.set(true);
     this.error.set(null);
     try {
       await firstValueFrom(this.api.atualizarTaxaContratada(transacaoId, taxaPct));
+      if (seq !== this.reqSeq) return;
       // Recarrega os lotes
       const lotesResp = await firstValueFrom(
         this.api.obterLotesPeps(this.carteiraId(), this.ativoId() ?? undefined)
       );
+      if (seq !== this.reqSeq) return;
       const pos = this.ativoId()
         ? lotesResp.posicoes?.find((p) => p.ativo.id === this.ativoId()) ?? lotesResp.posicoes?.[0]
         : lotesResp.posicoes?.[0];
       this.posicao.set(pos ?? null);
     } catch (err: any) {
-      this.error.set(err?.message || 'Erro ao salvar taxa contratada');
+      if (seq === this.reqSeq) {
+        this.error.set(err?.message || 'Erro ao salvar taxa contratada');
+      }
       throw err;
     } finally {
-      this.loading.set(false);
+      if (seq === this.reqSeq) {
+        this.loading.set(false);
+      }
     }
   }
 

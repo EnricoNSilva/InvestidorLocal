@@ -1,4 +1,7 @@
+import re
+import unicodedata
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,15 +14,19 @@ from app.models.renda_fixa import DetalhesRendaFixa
 from app.models.transacao import Transacao
 from app.schemas.renda_fixa import (
     AtivoRendaFixaRead,
+    CadastroManualRendaFixaRequest,
     CotacaoTesouroResponse,
     DetalhesRendaFixaRead,
     DetalhesRendaFixaUpsert,
     EnvelopeMercado,
+    LoteManualCreate,
     LotesRendaFixaResponse,
     MacroResponse,
+    PosicaoRendaFixaRead,
     TaxaContratadaPatch,
 )
-from app.schemas.transacao import TransacaoRead
+from app.schemas.transacao import TransacaoCreate, TransacaoRead
+from app.services.portfolio import PortfolioError, processar_transacao
 from app.services.renda_fixa.lotes import extrair_lotes_abertos
 from app.services.renda_fixa.mercado import obter_cotacoes_tesouro, obter_dados_macro
 
@@ -68,6 +75,135 @@ def upsert_detalhes_rf(
     db.commit()
     db.refresh(detalhes)
     return DetalhesRendaFixaRead.model_validate(detalhes)
+
+
+@router.post(
+    "/cadastro-manual",
+    response_model=PosicaoRendaFixaRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastrar ativo de Renda Fixa manualmente e opcionalmente lote inicial",
+)
+def cadastrar_renda_fixa_manual(
+    payload: CadastroManualRendaFixaRequest,
+    db: Session = Depends(get_db),
+):
+    if payload.ticker and payload.ticker.strip():
+        ticker = payload.ticker.strip().upper()
+    else:
+        prod_str = payload.detalhes.produto.value.replace("TESOURO_", "TD-")
+        emissor_norm = (
+            unicodedata.normalize("NFKD", payload.detalhes.emissor).encode("ASCII", "ignore").decode("ASCII")
+        )
+        emissor_slug = re.sub(r"[^A-Za-z0-9]", "", emissor_norm).upper() or "EMISSOR"
+        date_slug = (
+            payload.detalhes.data_vencimento.strftime("%Y%m%d")
+            if payload.detalhes.data_vencimento
+            else (str(payload.detalhes.ano_conversao) if payload.detalhes.ano_conversao else "PERP")
+        )
+        ticker = f"{prod_str}-{emissor_slug}-{date_slug}"[:30]
+
+    ativo = db.query(Ativo).filter(Ativo.ticker == ticker).first()
+    if ativo:
+        if ativo.tipo != TipoAtivo.RendaFixa:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ativo '{ticker}' já existe e não é do tipo RendaFixa",
+            )
+        ativo.nome = payload.nome.strip()
+    else:
+        ativo = Ativo(
+            ticker=ticker,
+            nome=payload.nome.strip(),
+            tipo=TipoAtivo.RendaFixa,
+            setor="Renda Fixa",
+        )
+        db.add(ativo)
+        db.flush()
+
+    dados = payload.detalhes.model_dump()
+    if ativo.detalhes_rf:
+        for k, v in dados.items():
+            setattr(ativo.detalhes_rf, k, v)
+    else:
+        detalhes = DetalhesRendaFixa(ativo_id=ativo.id, **dados)
+        db.add(detalhes)
+        ativo.detalhes_rf = detalhes
+    db.flush()
+
+    carteira_id = 1
+    if payload.lote_inicial:
+        carteira_id = payload.lote_inicial.carteira_id
+        tx_in = TransacaoCreate(
+            carteira_id=carteira_id,
+            ativo_id=ativo.id,
+            data_hora=datetime.combine(payload.lote_inicial.data_compra, datetime.min.time(), tzinfo=timezone.utc),
+            tipo_operacao=TipoOperacao.BUY,
+            quantidade=payload.lote_inicial.quantidade,
+            preco_unitario=payload.lote_inicial.preco_unitario,
+            taxas=payload.lote_inicial.taxas or Decimal("0"),
+            taxa_contratada=payload.lote_inicial.taxa_contratada,
+            moeda="BRL",
+            moeda_taxa="BRL",
+            ptax_utilizada=Decimal("1.0"),
+        )
+        try:
+            processar_transacao(db=db, transacao_in=tx_in)
+        except PortfolioError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    else:
+        db.commit()
+        db.refresh(ativo)
+
+    posicoes = extrair_lotes_abertos(db=db, carteira_id=carteira_id, ativo_id=ativo.id)
+    if not posicoes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Posição não encontrada")
+    return posicoes[0]
+
+
+@router.post(
+    "/ativos/{ativo_id}/lotes",
+    response_model=PosicaoRendaFixaRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Adicionar lote manual a um ativo de Renda Fixa existente",
+)
+def adicionar_lote_manual(
+    ativo_id: int,
+    payload: LoteManualCreate,
+    db: Session = Depends(get_db),
+):
+    ativo = db.query(Ativo).filter(Ativo.id == ativo_id).first()
+    if not ativo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ativo ID {ativo_id} não encontrado")
+    if ativo.tipo != TipoAtivo.RendaFixa:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Operação permitida exclusivamente para ativos do tipo RendaFixa",
+        )
+
+    tx_in = TransacaoCreate(
+        carteira_id=payload.carteira_id,
+        ativo_id=ativo.id,
+        data_hora=datetime.combine(payload.data_compra, datetime.min.time(), tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.BUY,
+        quantidade=payload.quantidade,
+        preco_unitario=payload.preco_unitario,
+        taxas=payload.taxas or Decimal("0"),
+        taxa_contratada=payload.taxa_contratada,
+        moeda="BRL",
+        moeda_taxa="BRL",
+        ptax_utilizada=Decimal("1.0"),
+    )
+    try:
+        processar_transacao(db=db, transacao_in=tx_in)
+    except PortfolioError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    posicoes = extrair_lotes_abertos(db=db, carteira_id=payload.carteira_id, ativo_id=ativo.id)
+    if not posicoes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Posição não encontrada")
+    return posicoes[0]
 
 
 @router.get("/lotes", response_model=LotesRendaFixaResponse, summary="Obter lotes abertos PEPS e fluxos recebidos")

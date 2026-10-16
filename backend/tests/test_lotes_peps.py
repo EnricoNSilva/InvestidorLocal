@@ -176,3 +176,78 @@ def test_peps_lote_custo_desconhecido_gera_pendencia(db_session: Session):
     assert lote.custo_conhecido is False
     assert any("custo de aquisição não informado" in p for p in pos.pendencias)
 
+
+def test_peps_venda_com_taxas_descontadas_do_fluxo(db_session: Session):
+    db = db_session
+    carteira = Carteira(id=3, nome="Carteira Venda Taxas")
+    db.add(carteira)
+
+    ativo = Ativo(
+        ticker="TD-RENDA+-2065-TAXAS",
+        nome="Tesouro RendA+ Aposentadoria Extra 2065",
+        tipo=TipoAtivo.RendaFixa,
+    )
+    db.add(ativo)
+    db.flush()
+
+    # Compra 10 unidades a R$ 200 com taxa R$ 2.00
+    tx_buy = Transacao(
+        carteira_id=3,
+        ativo_id=ativo.id,
+        data_hora=datetime(2024, 1, 10, 10, 0, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.BUY,
+        quantidade=Decimal("10.0"),
+        preco_unitario=Decimal("200.00"),
+        taxas=Decimal("2.00"),
+        moeda="BRL",
+        taxa_contratada=Decimal("6.50"),
+    )
+    db.add(tx_buy)
+
+    # Venda de 5 unidades a R$ 250 com taxa R$ 15.00
+    tx_sell = Transacao(
+        carteira_id=3,
+        ativo_id=ativo.id,
+        data_hora=datetime(2024, 2, 10, 10, 0, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.SELL,
+        quantidade=Decimal("5.0"),
+        preco_unitario=Decimal("250.00"),
+        taxas=Decimal("15.00"),
+        moeda="BRL",
+    )
+    db.add(tx_sell)
+    db.commit()
+
+    posicoes = extrair_lotes_abertos(db=db, carteira_id=3, ativo_id=ativo.id)
+    assert len(posicoes) == 1
+    pos = posicoes[0]
+
+    # Verifica fluxo de SELL: valor_brl deve ser (5.0 * 250.00) - 15.00 = 1250.00 - 15.00 = 1235.00
+    assert len(pos.fluxos_recebidos) == 1
+    fluxo = pos.fluxos_recebidos[0]
+    assert fluxo.tipo == "SELL"
+    assert fluxo.valor_brl == Decimal("1235.00")
+
+    # Venda adicional de 2 unidades a R$ 260.00 sem taxas (taxas=None)
+    tx_sell2 = Transacao(
+        carteira_id=3,
+        ativo_id=ativo.id,
+        data_hora=datetime(2024, 3, 10, 10, 0, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.SELL,
+        quantidade=Decimal("2.0"),
+        preco_unitario=Decimal("260.00"),
+        taxas=None,
+        moeda="BRL",
+    )
+    db.add(tx_sell2)
+    db.commit()
+
+    posicoes2 = extrair_lotes_abertos(db=db, carteira_id=3, ativo_id=ativo.id)
+    assert len(posicoes2) == 1
+    pos2 = posicoes2[0]
+    assert len(pos2.fluxos_recebidos) == 2
+    fluxo2 = pos2.fluxos_recebidos[1]
+    assert fluxo2.tipo == "SELL"
+    # (2.0 * 260.00) - 0 = 520.00
+    assert fluxo2.valor_brl == Decimal("520.00")
+

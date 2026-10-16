@@ -107,7 +107,7 @@ def extrair_lotes_abertos(db: Session, carteira_id: int, ativo_id: Optional[int]
 
             elif tx.tipo_operacao == TipoOperacao.SELL:
                 qtd_a_vender = tx.quantidade
-                valor_brl = tx.quantidade * pu_brl
+                valor_brl = (tx.quantidade * pu_brl) - taxas_brl
                 fluxos.append(
                     FluxoRecebidoRead(
                         transacao_id=tx.id,

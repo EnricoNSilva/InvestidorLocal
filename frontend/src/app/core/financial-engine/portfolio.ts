@@ -219,31 +219,36 @@ export function simulateSell({
 /**
  * Decompõe o resultado financeiro da venda entre Carrego Puro e Marcação a Mercado.
  * @param params
- * @param params.simRes - Resultado retornado por simulateSellPEPS
+ * @param params.simRes - Resultado retornado por simulateSellPEPS ou simulateSell
  * @param params.simDN - Data da venda
- * @param params.vnaFactor - Fator VNA na data simDN
+ * @param params.vnaFactor - Fator VNA na data simDN (opcional se ctx for fornecido)
  * @param params.instrument - Instrumento opcional
+ * @param params.ctx - Contexto de precificação opcional
  */
 export function decomposeCarryAndMtM({
   simRes,
   simDN,
-  vnaFactor,
+  vnaFactor = 1,
   instrument,
+  ctx,
 }: {
   simRes: SellResult;
   simDN: DayNum;
-  vnaFactor: number;
+  vnaFactor?: number;
   instrument?: FixedIncomeInstrument;
+  ctx?: PricingContext;
 }): CarryMtMDecomposition {
   let ganhoCarrego = 0;
 
   for (const p of simRes.parts) {
     let puCarrego: number;
     if (instrument) {
-      puCarrego = instrument.puCarrego(simDN, p.lot, {
+      const pricingCtx: PricingContext = {
         marketRate: 0,
         vnaFactor,
-      });
+        ...ctx,
+      };
+      puCarrego = instrument.puCarrego(simDN, p.lot, pricingCtx);
     } else {
       const lotRateDec = (Number(p.lot.rate) || 0) / 100;
       puCarrego = calcPU(simDN, lotRateDec, vnaFactor);
@@ -252,6 +257,17 @@ export function decomposeCarryAndMtM({
   }
 
   const ganhoBrutoTotal = simRes.bruto - simRes.custo;
+
+  if (instrument && !instrument.supportsMtM) {
+    return {
+      ganhoBrutoTotal,
+      ganhoCarrego: ganhoBrutoTotal,
+      ganhoMarcacao: 0,
+      pctCarrego: ganhoBrutoTotal !== 0 ? 1.0 : 0,
+      pctMarcacao: 0,
+    };
+  }
+
   const ganhoMarcacao = ganhoBrutoTotal - ganhoCarrego;
 
   const pctCarrego = ganhoBrutoTotal !== 0 ? ganhoCarrego / ganhoBrutoTotal : 0;

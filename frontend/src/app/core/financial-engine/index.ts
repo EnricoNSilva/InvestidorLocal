@@ -14,6 +14,7 @@ export * from './taxes';
 export * from './instruments/instrument';
 export * from './instruments/renda-mais';
 export * from './instruments/cdi-pos';
+export * from './instruments/bullet';
 export * from './portfolio';
 export * from './metrics';
 export * from './projection';

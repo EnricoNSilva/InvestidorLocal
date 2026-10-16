@@ -203,3 +203,186 @@ def test_api_renda_fixa_cdb_e_filtro_indexador(client):
     ativos_cdi = res_cdi.json()
     assert any(a["ticker"] == "CDB-INTER-20261231" for a in ativos_cdi)
 
+
+def test_cadastro_manual_cdb_e_lci_com_lotes_e_cmpm(client):
+    # 1. Cadastro manual de CDB 110% CDI sem ticker explícito (geração automática)
+    res_cdb = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "nome": "CDB Banco Inter 110% CDI",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "110.0000",
+            "emissor": "Banco Inter",
+            "data_vencimento": "2028-01-15",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2024-01-15",
+            "quantidade": "10.00000000",
+            "preco_unitario": "1000.00000000",
+            "taxa_contratada": "110.0000",
+            "taxas": "0.00000000",
+        },
+    })
+    assert res_cdb.status_code == 201, res_cdb.text
+    cdb_data = res_cdb.json()
+    cdb_id = cdb_data["ativo"]["id"]
+    assert cdb_data["ativo"]["ticker"].startswith("CDB-")
+    assert cdb_data["ativo"]["detalhes_rf"]["isento_ir"] is False
+    assert cdb_data["ativo"]["detalhes_rf"]["cobra_custodia_b3"] is False
+    assert Decimal(str(cdb_data["ativo"]["detalhes_rf"]["percentual_indexador"])) == Decimal("110.0000")
+    assert len(cdb_data["lotes"]) == 1
+    assert Decimal(str(cdb_data["quantidade_total"])) == Decimal("10.00000000")
+    assert Decimal(str(cdb_data["custo_total_brl"])) == Decimal("10000.00000000")
+    assert cdb_data["pendencias"] == []
+
+    # 2. Adiciona segundo lote no CDB via POST /ativos/{ativo_id}/lotes
+    res_lote2 = client.post(f"/api/v1/renda-fixa/ativos/{cdb_id}/lotes", json={
+        "carteira_id": 1,
+        "data_compra": "2024-06-15",
+        "quantidade": "5.00000000",
+        "preco_unitario": "1050.00000000",
+        "taxa_contratada": "110.0000",
+        "taxas": "0.00000000",
+    })
+    assert res_lote2.status_code == 201, res_lote2.text
+    lote2_data = res_lote2.json()
+    assert len(lote2_data["lotes"]) == 2
+    assert Decimal(str(lote2_data["quantidade_total"])) == Decimal("15.00000000")
+    assert Decimal(str(lote2_data["custo_total_brl"])) == Decimal("15250.00000000")
+
+    # Verifica posição consolidada CMPM na carteira
+    res_cart = client.get("/api/v1/posicoes")
+    assert res_cart.status_code == 200
+    pos_cart = next((p for p in res_cart.json() if p["ativo_id"] == cdb_id), None)
+    assert pos_cart is not None
+    assert Decimal(str(pos_cart["quantidade_saldo"])) == Decimal("15.00000000")
+    assert Decimal(str(pos_cart["custo_total_brl"])) == Decimal("15250.00000000")
+    assert abs(Decimal(str(pos_cart["preco_medio_brl"])) - (Decimal("15250") / Decimal("15"))) < Decimal("0.0001")
+
+    # 3. Cadastro manual de LCI 93% CDI (isenta de IR, sem taxa B3)
+    res_lci = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "ticker": "LCI-ITAU-20261015",
+        "nome": "LCI Itaú 93% CDI",
+        "detalhes": {
+            "produto": "LCI",
+            "indexador": "CDI",
+            "percentual_indexador": "93.0000",
+            "emissor": "Banco Itaú",
+            "data_vencimento": "2026-10-15",
+        },
+        "lote_inicial": {
+            "carteira_id": 1,
+            "data_compra": "2025-01-10",
+            "quantidade": "20.00000000",
+            "preco_unitario": "1000.00000000",
+            "taxa_contratada": "93.0000",
+            "taxas": "0.00000000",
+        },
+    })
+    assert res_lci.status_code == 201, res_lci.text
+    lci_data = res_lci.json()
+    assert lci_data["ativo"]["ticker"] == "LCI-ITAU-20261015"
+    assert lci_data["ativo"]["detalhes_rf"]["isento_ir"] is True
+    assert lci_data["ativo"]["detalhes_rf"]["cobra_custodia_b3"] is False
+    assert Decimal(str(lci_data["ativo"]["detalhes_rf"]["percentual_indexador"])) == Decimal("93.0000")
+    assert len(lci_data["lotes"]) == 1
+    assert Decimal(str(lci_data["quantidade_total"])) == Decimal("20.00000000")
+
+    # 4. GET /api/v1/renda-fixa/lotes deve extrair CDB e LCI corretamente
+    res_lotes_peps = client.get("/api/v1/renda-fixa/lotes")
+    assert res_lotes_peps.status_code == 200
+    posicoes = res_lotes_peps.json()["posicoes"]
+    tickers_presentes = [p["ativo"]["ticker"] for p in posicoes]
+    assert cdb_data["ativo"]["ticker"] in tickers_presentes
+    assert "LCI-ITAU-20261015" in tickers_presentes
+
+    # 5. Validação de erros
+    # Lote em ativo inexistente
+    res_err_404 = client.post("/api/v1/renda-fixa/ativos/99999/lotes", json={
+        "data_compra": "2025-01-10",
+        "quantidade": "1.0",
+        "preco_unitario": "1000.0",
+        "taxa_contratada": "100.0",
+    })
+    assert res_err_404.status_code == 404
+
+    # Lote em ativo que não é RendaFixa
+    res_acao = client.post("/api/v1/ativos", json={
+        "ticker": "PETR4",
+        "nome": "Petrobras PN",
+        "tipo": "Acao",
+    })
+    acao_id = res_acao.json()["id"]
+    res_err_tipo = client.post(f"/api/v1/renda-fixa/ativos/{acao_id}/lotes", json={
+        "data_compra": "2025-01-10",
+        "quantidade": "1.0",
+        "preco_unitario": "1000.0",
+        "taxa_contratada": "100.0",
+    })
+    assert res_err_tipo.status_code == 409
+
+
+def test_cadastro_manual_sem_lote_inicial_e_taxas_nulas(client):
+    # 1. Cadastro manual de CDB sem lote inicial e com emissor com acentuação ("Banco Itaú S.A.")
+    res = client.post("/api/v1/renda-fixa/cadastro-manual", json={
+        "nome": "CDB Banco Itaú 120% CDI 2029",
+        "detalhes": {
+            "produto": "CDB",
+            "indexador": "CDI",
+            "percentual_indexador": "120.0000",
+            "emissor": "Banco Itaú S.A.",
+            "data_vencimento": "2029-01-01",
+        },
+        "lote_inicial": None,
+    })
+    assert res.status_code == 201, res.text
+    data = res.json()
+    ativo = data["ativo"]
+    assert ativo["ticker"].startswith("CDB-BANCOITAUSA-20290101")
+    assert data["lotes"] == []
+    assert Decimal(str(data["quantidade_total"])) == Decimal("0")
+    assert Decimal(str(data["custo_total_brl"])) == Decimal("0")
+    ativo_id = ativo["id"]
+
+    # 2. Adiciona lote com taxas = None (null no JSON)
+    res_lote = client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "carteira_id": 1,
+        "data_compra": "2025-01-15",
+        "quantidade": "8.00000000",
+        "preco_unitario": "1000.00000000",
+        "taxa_contratada": "120.0000",
+        "taxas": None,
+    })
+    assert res_lote.status_code == 201, res_lote.text
+    lote_data = res_lote.json()
+    assert len(lote_data["lotes"]) == 1
+    assert Decimal(str(lote_data["quantidade_total"])) == Decimal("8.00000000")
+    assert Decimal(str(lote_data["custo_total_brl"])) == Decimal("8000.00000000")
+
+    # 3. Validação de regras de negócio em LoteManualCreate: quantidade <= 0, preco_unitario <= 0, taxa fora da faixa
+    res_qtd_invalida = client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "data_compra": "2025-01-15",
+        "quantidade": "0.0",
+        "preco_unitario": "1000.0",
+        "taxa_contratada": "120.0",
+    })
+    assert res_qtd_invalida.status_code == 422
+
+    res_preco_invalido = client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "data_compra": "2025-01-15",
+        "quantidade": "1.0",
+        "preco_unitario": "0.0",
+        "taxa_contratada": "120.0",
+    })
+    assert res_preco_invalido.status_code == 422
+
+    res_taxa_invalida = client.post(f"/api/v1/renda-fixa/ativos/{ativo_id}/lotes", json={
+        "data_compra": "2025-01-15",
+        "quantidade": "1.0",
+        "preco_unitario": "1000.0",
+        "taxa_contratada": "1500.0",
+    })
+    assert res_taxa_invalida.status_code == 422
+
+
