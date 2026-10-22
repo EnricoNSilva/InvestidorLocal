@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import String, DateTime, Enum
+from sqlalchemy import String, DateTime, Enum, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.models.enums import TipoAtivo
@@ -18,6 +19,9 @@ class Ativo(Base):
     nome: Mapped[str] = mapped_column(String(150), nullable=False)
     tipo: Mapped[TipoAtivo] = mapped_column(Enum(TipoAtivo), nullable=False, index=True)
     setor: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    cotacao_manual: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=24, scale=8, asdecimal=True), nullable=True, default=None
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

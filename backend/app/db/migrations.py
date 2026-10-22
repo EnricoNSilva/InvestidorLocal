@@ -10,6 +10,13 @@ from sqlalchemy.engine import Engine
 # (tabela, coluna, DDL do tipo). Somente operações ADITIVAS são permitidas aqui.
 MIGRACOES_COLUNAS: tuple[tuple[str, str, str], ...] = (
     ("transacoes", "taxa_contratada", "NUMERIC(8, 4)"),
+    ("ativos", "cotacao_manual", "NUMERIC(24, 8)"),
+    ("posicoes_consolidadas", "proventos_acumulados_brl", "NUMERIC(24, 4) NOT NULL DEFAULT 0.0"),
+    ("posicoes_consolidadas", "lucro_realizado_brl", "NUMERIC(24, 4) NOT NULL DEFAULT 0.0"),
+    ("posicoes_consolidadas", "quantidade_sem_custo", "NUMERIC(24, 8) NOT NULL DEFAULT 0.0"),
+    ("posicoes_consolidadas", "valor_total_venda_brl", "NUMERIC(24, 4) NOT NULL DEFAULT 0.0"),
+    ("posicoes_consolidadas", "custo_historico_brl", "NUMERIC(24, 4) NOT NULL DEFAULT 0.0"),
+    ("posicoes_consolidadas", "lotes_pendentes_json", "TEXT"),
 )
 
 
