@@ -36,7 +36,7 @@ _RE_TESOURO = re.compile(
     r"(?:TESOURO(?:\s+DIRETO)?|TD)[\s\-_]+(?P<prod>RENDA(?:\s*(?:\+|MAIS))?|EDUCA(?:\s*(?:\+|MAIS))?|IPCA(?:\s*(?:\+|MAIS))?(?:\s+COM\s+JUROS\s+SEMESTRAIS)?|SELIC|PREFIXADO(?:\s+COM\s+JUROS\s+SEMESTRAIS)?|PRE(?:\s*(?:\+|MAIS)J|PREFIXADO)?)(?:\s+APOSENTADORIA\s+EXTRA)?\D*(?P<ano>\d{4})?"
 )
 
-_RE_BANCARIO = re.compile(r"\b(?P<prod>CDB|LCI|LCA|LC)\b")
+_RE_BANCARIO = re.compile(r"\b(?P<prod>CDB|LCI|LCA|LC)\b|^(?P<prod_cetip>CDB|LCI|LCA)[0-9A-Z]+")
 
 OFFSET_VENCIMENTO_CONVERSAO = {
     ProdutoRendaFixa.TESOURO_RENDA_MAIS: 19,
@@ -285,7 +285,7 @@ def classificar_renda_fixa(descricao: str, *, ano_e_vencimento: bool = False) ->
     # 3. Caso Renda Fixa Bancária (CDB, LCI, LCA, LC)
     banc_match = _RE_BANCARIO.search(norm)
     if banc_match:
-        prod_str = banc_match.group("prod")
+        prod_str = banc_match.group("prod") or banc_match.group("prod_cetip")
         produto = ProdutoRendaFixa[prod_str]
 
         if "IPCA" in norm:
