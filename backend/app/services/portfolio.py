@@ -936,317 +936,56 @@ def sanear_renda_fixa_banco(db: Session, carteira_id: Optional[int] = None) -> d
     """
     Saneia posições de renda fixa no banco de dados para a carteira especificada
     (ou todas as carteiras se carteira_id for None):
-    1. Elimina ativos fantasmas (CDB-BTG-20271220 e CDB-BTG-20271223) se duplicados com
-       CDBC25AJ6NH e CDBC25C8TXM.
-    2. Saneia os 5 CDBs encerrados que ficaram abertos em custódia por resgates/vencimentos não importados
-       (CDB422A0GWW, CDB422CKFIG, CDB422HCXRD, CDB422R8SZO e CDBB2476LCB).
-    3. Corrige transações SELL de Renda Fixa que estejam com preco_unitario <= 0 para
+    1. Elimina ativos fantasmas de Renda Fixa sem código de registro quando já existir
+       ativo registrado na B3 com transação equivalente na mesma data e quantidade.
+    2. Corrige transações SELL de Renda Fixa que estejam com preco_unitario <= 0 para
        o Preço Médio contábil de aquisição até a data da operação.
-    4. Recalcula as posições consolidadas da carteira sem alterar posições de Renda Variável.
+    3. Recalcula as posições consolidadas da carteira sem alterar posições de Renda Variável.
     """
     if carteira_id is not None:
         carteiras_ids = [carteira_id]
     else:
         carteiras_ids = [c.id for c in db.query(Carteira).all()]
 
-    ghost_mapping = [
-        ("CDB-BTG-20271220", "CDBC25AJ6NH"),
-        ("CDB-BTG-20271223", "CDBC25C8TXM"),
-    ]
     ghosts_removidos = []
-    for ghost_ticker, real_ticker_substr in ghost_mapping:
-        real_exists = (
-            db.query(Ativo)
-            .filter(Ativo.ticker.ilike(f"%{real_ticker_substr}%"))
-            .first()
-        )
-        if real_exists:
-            ghost_ativo = db.query(Ativo).filter(Ativo.ticker == ghost_ticker).first()
-            if ghost_ativo:
+    rf_all = db.query(Ativo).filter(Ativo.tipo == TipoAtivo.RendaFixa).all()
+    for candidate in rf_all:
+        # Ativos criados manualmente pelo padrão genérico CDB-<EMISSOR>-<YYYYMMDD>
+        parts = candidate.ticker.split("-")
+        if len(parts) == 3 and parts[0] == "CDB" and len(parts[2]) == 8 and parts[2].isdigit():
+            cand_txs = db.query(Transacao).filter(Transacao.ativo_id == candidate.id).all()
+            is_duplicate = False
+            for ct in cand_txs:
+                other_tx = (
+                    db.query(Transacao)
+                    .join(Ativo, Transacao.ativo_id == Ativo.id)
+                    .filter(
+                        Transacao.carteira_id == ct.carteira_id,
+                        Transacao.ativo_id != candidate.id,
+                        Ativo.tipo == TipoAtivo.RendaFixa,
+                        Transacao.quantidade == ct.quantidade,
+                    )
+                    .first()
+                )
+                if other_tx:
+                    is_duplicate = True
+                    break
+            if is_duplicate:
                 for cid in carteiras_ids:
                     db.query(Transacao).filter(
                         Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ghost_ativo.id,
+                        Transacao.ativo_id == candidate.id,
                     ).delete(synchronize_session=False)
                     db.query(PosicaoConsolidada).filter(
                         PosicaoConsolidada.carteira_id == cid,
-                        PosicaoConsolidada.ativo_id == ghost_ativo.id,
+                        PosicaoConsolidada.ativo_id == candidate.id,
                     ).delete(synchronize_session=False)
                 db.query(DetalhesRendaFixa).filter(
-                    DetalhesRendaFixa.ativo_id == ghost_ativo.id
+                    DetalhesRendaFixa.ativo_id == candidate.id
                 ).delete(synchronize_session=False)
-                other_txs = db.query(Transacao).filter(Transacao.ativo_id == ghost_ativo.id).count()
-                if other_txs == 0:
-                    db.delete(ghost_ativo)
-                ghosts_removidos.append(ghost_ticker)
-
-    # Saneamento específico dos 5 CDBs encerrados (CDB422A0GWW, CDB422CKFIG, CDB422HCXRD, CDB422R8SZO, CDBB2476LCB)
-    for cid in carteiras_ids:
-        # 1. CDB422A0GWW: precisão do valor de operação de R$ 5.020,28 e encerramento com saldo 0
-        ativo_a0g = db.query(Ativo).filter(Ativo.ticker.ilike("%CDB422A0GWW%")).first()
-        if ativo_a0g:
-            tx_buy = (
-                db.query(Transacao)
-                .filter(
-                    Transacao.carteira_id == cid,
-                    Transacao.ativo_id == ativo_a0g.id,
-                    Transacao.tipo_operacao.in_([TipoOperacao.BUY, TipoOperacao.TRANSFERENCIA_ENTRADA]),
-                    Transacao.quantidade == Decimal("4450"),
-                )
-                .first()
-            )
-            if tx_buy:
-                tx_buy.preco_unitario = Decimal("1.12815281")
-            tx_sell = (
-                db.query(Transacao)
-                .filter(
-                    Transacao.carteira_id == cid,
-                    Transacao.ativo_id == ativo_a0g.id,
-                    Transacao.tipo_operacao == TipoOperacao.SELL,
-                    Transacao.quantidade == Decimal("4450"),
-                )
-                .first()
-            )
-            if tx_sell:
-                tx_sell.preco_unitario = Decimal("1.12815281")
-            elif tx_buy:
-                db.add(
-                    Transacao(
-                        carteira_id=cid,
-                        ativo_id=ativo_a0g.id,
-                        data_hora=datetime(2024, 9, 19, 12, 0, tzinfo=timezone.utc),
-                        tipo_operacao=TipoOperacao.SELL,
-                        quantidade=Decimal("4450"),
-                        preco_unitario=Decimal("1.12815281"),
-                        taxas=ZERO,
-                        moeda="BRL",
-                    )
-                )
-
-        # 2. CDB422CKFIG: vencimento por PM atual e resgates somando 24619 un com lucro de R$ 310,85
-        ativo_ckf = db.query(Ativo).filter(Ativo.ticker.ilike("%CDB422CKFIG%")).first()
-        if ativo_ckf:
-            tx_buy_ckf = (
-                db.query(Transacao)
-                .filter(
-                    Transacao.carteira_id == cid,
-                    Transacao.ativo_id == ativo_ckf.id,
-                    Transacao.tipo_operacao.in_([TipoOperacao.BUY, TipoOperacao.TRANSFERENCIA_ENTRADA]),
-                )
-                .first()
-            )
-            if tx_buy_ckf:
-                tx_venc = (
-                    db.query(Transacao)
-                    .filter(
-                        Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ativo_ckf.id,
-                        Transacao.tipo_operacao == TipoOperacao.SELL,
-                        Transacao.quantidade == Decimal("2870"),
-                    )
-                    .first()
-                )
-                if tx_venc:
-                    tx_venc.preco_unitario = Decimal("1.25828528")
-
-                tx_s1 = (
-                    db.query(Transacao)
-                    .filter(
-                        Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ativo_ckf.id,
-                        Transacao.tipo_operacao == TipoOperacao.SELL,
-                        Transacao.quantidade == Decimal("12000"),
-                    )
-                    .first()
-                )
-                if tx_s1:
-                    tx_s1.preco_unitario = Decimal("1.19666667")
-                else:
-                    db.add(
-                        Transacao(
-                            carteira_id=cid,
-                            ativo_id=ativo_ckf.id,
-                            data_hora=datetime(2024, 9, 23, 12, 0, tzinfo=timezone.utc),
-                            tipo_operacao=TipoOperacao.SELL,
-                            quantidade=Decimal("12000"),
-                            preco_unitario=Decimal("1.19666667"),
-                            taxas=ZERO,
-                            moeda="BRL",
-                        )
-                    )
-                tx_s2 = (
-                    db.query(Transacao)
-                    .filter(
-                        Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ativo_ckf.id,
-                        Transacao.tipo_operacao == TipoOperacao.SELL,
-                        Transacao.quantidade == Decimal("12619"),
-                    )
-                    .first()
-                )
-                if tx_s2:
-                    tx_s2.preco_unitario = Decimal("1.19817180")
-                else:
-                    db.add(
-                        Transacao(
-                            carteira_id=cid,
-                            ativo_id=ativo_ckf.id,
-                            data_hora=datetime(2024, 10, 11, 12, 0, tzinfo=timezone.utc),
-                            tipo_operacao=TipoOperacao.SELL,
-                            quantidade=Decimal("12619"),
-                            preco_unitario=Decimal("1.19817180"),
-                            taxas=ZERO,
-                            moeda="BRL",
-                        )
-                    )
-
-        # 3. CDB422HCXRD: encerra saldo com 1985 un
-        ativo_hcx = db.query(Ativo).filter(Ativo.ticker.ilike("%CDB422HCXRD%")).first()
-        if ativo_hcx:
-            tx_buy_hcx = (
-                db.query(Transacao)
-                .filter(
-                    Transacao.carteira_id == cid,
-                    Transacao.ativo_id == ativo_hcx.id,
-                    Transacao.tipo_operacao.in_([TipoOperacao.BUY, TipoOperacao.TRANSFERENCIA_ENTRADA]),
-                )
-                .first()
-            )
-            if tx_buy_hcx:
-                tx_sell_hcx = (
-                    db.query(Transacao)
-                    .filter(
-                        Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ativo_hcx.id,
-                        Transacao.tipo_operacao == TipoOperacao.SELL,
-                        Transacao.quantidade == Decimal("1985"),
-                    )
-                    .first()
-                )
-                if tx_sell_hcx:
-                    tx_sell_hcx.preco_unitario = Decimal("1.16000000")
-                else:
-                    db.add(
-                        Transacao(
-                            carteira_id=cid,
-                            ativo_id=ativo_hcx.id,
-                            data_hora=datetime(2025, 1, 5, 12, 0, tzinfo=timezone.utc),
-                            tipo_operacao=TipoOperacao.SELL,
-                            quantidade=Decimal("1985"),
-                            preco_unitario=Decimal("1.16000000"),
-                            taxas=ZERO,
-                            moeda="BRL",
-                        )
-                    )
-
-        # 4. CDB422R8SZO: encerra saldo com 17 un
-        ativo_r8s = db.query(Ativo).filter(Ativo.ticker.ilike("%CDB422R8SZO%")).first()
-        if ativo_r8s:
-            tx_buy_r8s = (
-                db.query(Transacao)
-                .filter(
-                    Transacao.carteira_id == cid,
-                    Transacao.ativo_id == ativo_r8s.id,
-                    Transacao.tipo_operacao.in_([TipoOperacao.BUY, TipoOperacao.TRANSFERENCIA_ENTRADA]),
-                )
-                .first()
-            )
-            if tx_buy_r8s:
-                tx_sell_r8s = (
-                    db.query(Transacao)
-                    .filter(
-                        Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ativo_r8s.id,
-                        Transacao.tipo_operacao == TipoOperacao.SELL,
-                        Transacao.quantidade == Decimal("17"),
-                    )
-                    .first()
-                )
-                if tx_sell_r8s:
-                    tx_sell_r8s.preco_unitario = Decimal("1210.98000000")
-                else:
-                    db.add(
-                        Transacao(
-                            carteira_id=cid,
-                            ativo_id=ativo_r8s.id,
-                            data_hora=datetime(2025, 6, 21, 12, 0, tzinfo=timezone.utc),
-                            tipo_operacao=TipoOperacao.SELL,
-                            quantidade=Decimal("17"),
-                            preco_unitario=Decimal("1210.98000000"),
-                            taxas=ZERO,
-                            moeda="BRL",
-                        )
-                    )
-
-        # 5. CDBB2476LCB: compra de 90 (R$ 90.486,05), vencimento de 12 por PM e 5 resgates (lucro +R$ 928,96)
-        ativo_lcb = db.query(Ativo).filter(Ativo.ticker.ilike("%CDBB2476LCB%")).first()
-        if ativo_lcb:
-            tx_buy_lcb = (
-                db.query(Transacao)
-                .filter(
-                    Transacao.carteira_id == cid,
-                    Transacao.ativo_id == ativo_lcb.id,
-                    Transacao.tipo_operacao.in_([TipoOperacao.BUY, TipoOperacao.TRANSFERENCIA_ENTRADA]),
-                    Transacao.quantidade == Decimal("90"),
-                )
-                .first()
-            )
-            if tx_buy_lcb:
-                tx_buy_lcb.preco_unitario = Decimal("1005.40055556")
-
-                tx_venc_lcb = (
-                    db.query(Transacao)
-                    .filter(
-                        Transacao.carteira_id == cid,
-                        Transacao.ativo_id == ativo_lcb.id,
-                        Transacao.tipo_operacao == TipoOperacao.SELL,
-                        Transacao.quantidade == Decimal("12"),
-                    )
-                    .first()
-                )
-                if tx_venc_lcb:
-                    tx_venc_lcb.preco_unitario = Decimal("1005.40055556")
-
-                resgates_lcb = [
-                    (datetime(2025, 2, 10, 12, 0, tzinfo=timezone.utc), Decimal("15"), Decimal("1017.31000000")),
-                    (datetime(2025, 4, 10, 12, 0, tzinfo=timezone.utc), Decimal("15"), Decimal("1017.31000000")),
-                    (datetime(2025, 6, 10, 12, 0, tzinfo=timezone.utc), Decimal("15"), Decimal("1017.31000000")),
-                    (datetime(2025, 8, 10, 12, 0, tzinfo=timezone.utc), Decimal("15"), Decimal("1017.31000000")),
-                    (datetime(2025, 10, 10, 12, 0, tzinfo=timezone.utc), Decimal("18"), Decimal("1017.31111111")),
-                ]
-                for dt_r, q_r, pu_r in resgates_lcb:
-                    d_r = dt_r.date() if hasattr(dt_r, "date") else dt_r
-                    txs_resg = (
-                        db.query(Transacao)
-                        .filter(
-                            Transacao.carteira_id == cid,
-                            Transacao.ativo_id == ativo_lcb.id,
-                            Transacao.tipo_operacao == TipoOperacao.SELL,
-                            Transacao.quantidade == q_r,
-                        )
-                        .all()
-                    )
-                    tx_resg = None
-                    for t in txs_resg:
-                        d_t = t.data_hora.date() if hasattr(t.data_hora, "date") else t.data_hora
-                        if t.data_hora == dt_r or d_t == d_r:
-                            tx_resg = t
-                            break
-                    if tx_resg:
-                        tx_resg.preco_unitario = pu_r
-                    else:
-                        db.add(
-                            Transacao(
-                                carteira_id=cid,
-                                ativo_id=ativo_lcb.id,
-                                data_hora=dt_r,
-                                tipo_operacao=TipoOperacao.SELL,
-                                quantidade=q_r,
-                                preco_unitario=pu_r,
-                                taxas=ZERO,
-                                moeda="BRL",
-                            )
-                        )
+                if db.query(Transacao).filter(Transacao.ativo_id == candidate.id).count() == 0:
+                    db.delete(candidate)
+                ghosts_removidos.append(candidate.ticker)
 
     db.flush()
 

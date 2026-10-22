@@ -516,7 +516,7 @@ describe('Motor Financeiro - CDI Pós-Fixado e Bullet (§1 e §2 PLANO_CDI)', ()
         dn: dInicio,
         rate: 100,
         price: 0.01,
-        qty: 18836239,
+        qty: 10000000,
       };
 
       const res = simulateSell({
@@ -536,7 +536,7 @@ describe('Motor Financeiro - CDI Pós-Fixado e Bullet (§1 e §2 PLANO_CDI)', ()
       // c3 = round8(1.00110292 * 1.00055131) = 1.00165484
       // pu = trunc8(0.01 * 1.00165484) = 0.01001654
       expect(res.pu).toBe(0.01001654);
-      expect(res.bruto).toBe(188673.94);
+      expect(res.bruto).toBe(100165.4);
     });
   });
 });

@@ -25,7 +25,7 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-DEFAULT_EXCEL_PATH = r"G:\Meu Drive\Robinson\Bitcoin\BinanceRobinson.xlsx"
+DEFAULT_EXCEL_PATH = "ordens_binance.xlsx"
 
 # Pares pareados a Dólar / Stablecoins reconhecidos
 USD_STABLE_PAIRS = {"BTCUSDT", "BTCUSDC", "BTCBUSD", "BTCFDUSD"}

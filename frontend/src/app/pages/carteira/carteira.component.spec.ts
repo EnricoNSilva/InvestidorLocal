@@ -496,7 +496,7 @@ describe('CarteiraComponent', () => {
     const pos = {
       ...component.posicoesTabela()[0],
       codigoRfbIrpf: '08/01',
-      textoIrpfBensDireitos: '0.06561877 BTC em custódia',
+      textoIrpfBensDireitos: '0.10000000 BTC em custódia',
     };
     if (navigator.clipboard) {
       spyOn(navigator.clipboard, 'writeText').and.returnValue(Promise.resolve());

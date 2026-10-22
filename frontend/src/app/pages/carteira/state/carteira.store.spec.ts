@@ -972,18 +972,18 @@ describe('CarteiraStore', () => {
         id: 999,
         carteira_id: 1,
         ativo_id: 999,
-        quantidade_saldo: 25.2,
-        custo_total_brl: 22189,
-        preco_medio_brl: 880,
-        proventos_acumulados_brl: 161,
-        lucro_realizado_brl: 7567,
-        dividendo_por_acao_brl: 6.4,
-        preco_medio_ajustado_brl: 873.6,
-        yoc_acumulado_pct: 0.72,
+        quantidade_saldo: 20,
+        custo_total_brl: 20000,
+        preco_medio_brl: 1000,
+        proventos_acumulados_brl: 100,
+        lucro_realizado_brl: 5000,
+        dividendo_por_acao_brl: 5,
+        preco_medio_ajustado_brl: 995,
+        yoc_acumulado_pct: 0.5,
         data_atualizacao: '2026-10-16T12:00:00Z',
-        quantidade_vendida: 50.7,
-        custo_vendas_brl: 41826,
-        valor_total_vendas_brl: 49394,
+        quantidade_vendida: 40,
+        custo_vendas_brl: 40000,
+        valor_total_vendas_brl: 45000,
         ativo: {
           id: 999,
           ticker: 'SOL',
@@ -1001,8 +1001,8 @@ describe('CarteiraStore', () => {
       let encerradas = store.posicoesFiltradasEncerradas();
       const solPatrimonio = encerradas.find((p) => p.ativo.ticker === 'SOL');
       expect(solPatrimonio).toBeDefined();
-      expect(solPatrimonio?.custoVendasBrl).toBe(41826);
-      expect(solPatrimonio?.valorTotalVendasBrl).toBe(49394);
+      expect(solPatrimonio?.custoVendasBrl).toBe(40000);
+      expect(solPatrimonio?.valorTotalVendasBrl).toBe(45000);
 
       // Na aba CRIPTO
       store.setFiltroClasse('CRIPTO');
@@ -1088,7 +1088,7 @@ describe('CarteiraStore', () => {
         custo_historico_brl: 25000,
         lotes_pendentes: [],
         data_atualizacao: '2026-10-16T12:00:00Z',
-        ativo: { id: 888, ticker: 'CDB-CDB223DOLTM', nome: 'CDB CDB223DOLTM', tipo: 'RendaFixa' },
+        ativo: { id: 888, ticker: 'CDB-CDBTEST01', nome: 'CDB CDBTEST01', tipo: 'RendaFixa' },
       };
 
       store.todasPosicoes.set([posCdbVencido]);
@@ -1119,7 +1119,7 @@ describe('CarteiraStore', () => {
         custo_historico_brl: 25000,
         lotes_pendentes: [],
         data_atualizacao: '2026-10-16T12:00:00Z',
-        ativo: { id: 889, ticker: 'CDB-CDB223DOLTM', nome: 'CDB CDB223DOLTM', tipo: 'RendaFixa' },
+        ativo: { id: 889, ticker: 'CDB-CDBTEST01', nome: 'CDB CDBTEST01', tipo: 'RendaFixa' },
       };
 
       store.todasPosicoes.set([posCdbZero]);

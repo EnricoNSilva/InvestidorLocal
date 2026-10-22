@@ -495,7 +495,7 @@ def processar_planilha_movimentacao_b3(
             elif ticker in {"HGLG12", "HGBS12", "KNRI12", "PMIS12", "BBDC1"}:
                 continue
 
-            # Incorporação de AESB3 via A7RN11: Resgate pelo valor total de R$ 4.737,55
+            # Incorporação de AESB3 via A7RN11: Resgate pelo valor total da operação
             elif linha.ticker_bruto == "A7RN11" or ticker == "A7RN11":
                 if "resgate" in linha.norm_mov or linha.valor_total > ZERO:
                     ticker = "AESB3"
@@ -515,7 +515,7 @@ def processar_planilha_movimentacao_b3(
                         if saldo_custodia["AESB3"] > ZERO
                         else (saldo_disp if saldo_disp > ZERO else (linha.quantidade if linha.quantidade > ZERO else Decimal("1.0")))
                     )
-                    valor_venda = linha.valor_total if linha.valor_total > ZERO else Decimal("4737.55")
+                    valor_venda = linha.valor_total if linha.valor_total > ZERO else ZERO
                     preco_unitario = (valor_venda / quantidade) if quantidade > ZERO else valor_venda
                     saldo_custodia["AESB3"] = ZERO
                     tipo_ativo = TipoAtivo.Acao

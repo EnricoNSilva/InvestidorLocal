@@ -1187,17 +1187,17 @@ def test_posicao_encerrada_com_transferencia_sem_custo_e_resolucao(client):
 def test_idempotencia_a7rn11_e_itsa2_multiplos_uploads(client):
     """
     Testa a ingestão e deduplicação de eventos corporativos especiais:
-    - Resgate A7RN11 liquidando AESB3 por R$ 4.737,55.
-    - Exercício de subscrição de ITSA2 gerando compra de ITSA4 por R$ 6.70.
+    - Resgate A7RN11 liquidando AESB3 pelo valor da operação.
+    - Exercício de subscrição de ITSA2 gerando compra de ITSA4.
     - Re-importação não gera transações duplicadas.
     """
     mov_data = [
-        # Transferência inicial de 341 AESB3 a PU 0
-        {"Data": "2022-03-23", "Movimentação": "Transferência", "Entrada/Saída": "Credito", "Produto": "AESB3 - AES BRASIL ON", "Quantidade": 341, "Preço unitário": 0.0, "Valor da Operação": 0.0},
-        # Resgate de A7RN11 (liquidando AESB3 por R$ 4.737,55)
-        {"Data": "2024-11-08", "Movimentação": "Resgate", "Entrada/Saída": "Credito", "Produto": "A7RN11 - A7RN11 ON", "Quantidade": 341, "Preço unitário": "-", "Valor da Operação": 4737.55},
+        # Transferência inicial de 200 AESB3 a PU 0
+        {"Data": "2022-03-23", "Movimentação": "Transferência", "Entrada/Saída": "Credito", "Produto": "AESB3 - AES BRASIL ON", "Quantidade": 200, "Preço unitário": 0.0, "Valor da Operação": 0.0},
+        # Resgate de A7RN11 (liquidando AESB3 por R$ 2.500,00)
+        {"Data": "2024-11-08", "Movimentação": "Resgate", "Entrada/Saída": "Credito", "Produto": "A7RN11 - A7RN11 ON", "Quantidade": 200, "Preço unitário": "-", "Valor da Operação": 2500.00},
         # Exercício de subscrição ITSA2
-        {"Data": "2023-01-20", "Movimentação": "Direitos de Subscrição - Exercido", "Entrada/Saída": "Debito", "Produto": "ITSA2 - ITAUSA", "Quantidade": 25, "Preço unitário": 6.70, "Valor da Operação": 167.50},
+        {"Data": "2023-01-20", "Movimentação": "Direitos de Subscrição - Exercido", "Entrada/Saída": "Debito", "Produto": "ITSA2 - ITAUSA", "Quantidade": 20, "Preço unitário": 7.00, "Valor da Operação": 140.00},
     ]
     df = pd.DataFrame(mov_data)
     out = io.BytesIO()
@@ -1220,15 +1220,15 @@ def test_idempotencia_a7rn11_e_itsa2_multiplos_uploads(client):
     res_pos = client.get("/api/v1/posicoes?somente_com_saldo=false")
     pos_map = {p["ativo"]["ticker"]: p for p in res_pos.json()}
 
-    # AESB3: liquidada integralmente (saldo 0) com valor de venda R$ 4.737,55
+    # AESB3: liquidada integralmente (saldo 0) com valor de venda R$ 2.500,00
     assert "AESB3" in pos_map
     assert Decimal(str(pos_map["AESB3"]["quantidade_saldo"])) == Decimal("0")
-    assert Decimal(str(pos_map["AESB3"]["valor_total_venda_brl"])) == Decimal("4737.55")
+    assert Decimal(str(pos_map["AESB3"]["valor_total_venda_brl"])) == Decimal("2500.00")
 
-    # ITSA4: 25 ações compradas a R$ 6.70
+    # ITSA4: 20 ações compradas a R$ 7.00
     assert "ITSA4" in pos_map
-    assert Decimal(str(pos_map["ITSA4"]["quantidade_saldo"])) == Decimal("25")
-    assert Decimal(str(pos_map["ITSA4"]["preco_medio_brl"])) == Decimal("6.70")
+    assert Decimal(str(pos_map["ITSA4"]["quantidade_saldo"])) == Decimal("20")
+    assert Decimal(str(pos_map["ITSA4"]["preco_medio_brl"])) == Decimal("7.00")
 
 
 def test_venda_lote_pendente_abate_com_custo_e_compras_posteriores(client):
@@ -1729,8 +1729,8 @@ def test_modo_b_com_grupamento_irbr3_e_desdobro_hgbs11(client):
 
 def test_modo_b_com_transacao_id_e_bonificacao_fracao_itsa4(client):
     """
-    Reproduz exatamente o payload enviado pelo frontend Angular no Modo B para ITSA4:
-    { "transacao_id": tx_id, "pm_consolidado_atual": 7.52 }
+    Reproduz o payload enviado pelo frontend Angular no Modo B para ITSA4:
+    { "transacao_id": tx_id, "pm_consolidado_atual": 10.00 }
     Garante que o backend NÃO entra por engano no bloco do Modo A zerando o PU,
     e contabiliza corretamente BONIFICACAO e FRACAO_ATIVOS na simulação.
     """
@@ -1739,62 +1739,62 @@ def test_modo_b_com_transacao_id_e_bonificacao_fracao_itsa4(client):
 
     tx_transf = client.post("/api/v1/transacoes", json={
         "carteira_id": 1, "ativo_id": itsa_id, "tipo_operacao": "TRANSFERENCIA_ENTRADA",
-        "quantidade": "1520.0", "preco_unitario": "0.0", "data_hora": "2022-03-23T10:00:00Z",
+        "quantidade": "1000.0", "preco_unitario": "0.0", "data_hora": "2022-03-23T10:00:00Z",
     })
     tx_id = tx_transf.json()["id"]
 
-    # Bonificações (+360.71) e Frações (-1.71) + Compras (+100 @ 6.70 = 670.00) -> Saldo final = 1979
+    # Bonificações (+100.50) e Frações (-0.50) + Compras (+100 @ 8.00 = 800.00) -> Saldo final = 1200
     client.post("/api/v1/transacoes", json={
         "carteira_id": 1, "ativo_id": itsa_id, "tipo_operacao": "BONIFICACAO",
-        "quantidade": "360.71", "preco_unitario": "0.0", "data_hora": "2023-11-29T10:00:00Z",
+        "quantidade": "100.50", "preco_unitario": "0.0", "data_hora": "2023-11-29T10:00:00Z",
     })
     client.post("/api/v1/transacoes", json={
         "carteira_id": 1, "ativo_id": itsa_id, "tipo_operacao": "FRACAO_ATIVOS",
-        "quantidade": "1.71", "preco_unitario": "0.0", "data_hora": "2024-01-02T10:00:00Z",
+        "quantidade": "0.50", "preco_unitario": "0.0", "data_hora": "2024-01-02T10:00:00Z",
     })
     client.post("/api/v1/transacoes", json={
         "carteira_id": 1, "ativo_id": itsa_id, "tipo_operacao": "BUY",
-        "quantidade": "100.0", "preco_unitario": "6.70", "data_hora": "2025-02-19T10:00:00Z",
+        "quantidade": "100.0", "preco_unitario": "8.00", "data_hora": "2025-02-19T10:00:00Z",
     })
 
-    # Frontend envia transacao_id JUNTO com pm_consolidado_atual = 7.52
+    # Frontend envia transacao_id JUNTO com pm_consolidado_atual = 10.00
     res_adj = client.put(f"/api/v1/posicoes/carteiras/1/ativos/{itsa_id}/ajuste-manual", json={
         "transacao_id": tx_id,
-        "pm_consolidado_atual": 7.52,
+        "pm_consolidado_atual": 10.00,
     })
     assert res_adj.status_code == 200
     pos = res_adj.json()
-    assert Decimal(str(pos["quantidade_saldo"])) == Decimal("1979")
+    assert Decimal(str(pos["quantidade_saldo"])) == Decimal("1200")
     assert Decimal(str(pos["quantidade_sem_custo"])) == Decimal("0")
     assert pos["custo_pendente"] is False
     assert len(pos["lotes_pendentes"]) == 0
-    assert abs(Decimal(str(pos["preco_medio_brl"])) - Decimal("7.52")) < Decimal("0.0001")
-    assert abs(Decimal(str(pos["custo_total_brl"])) - Decimal("14882.08")) < Decimal("0.01")
+    assert abs(Decimal(str(pos["preco_medio_brl"])) - Decimal("10.00")) < Decimal("0.0001")
+    assert abs(Decimal(str(pos["custo_total_brl"])) - Decimal("12000.00")) < Decimal("0.01")
 
 
 def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
     """
     Testa:
-    1. Compra real na bolsa (Credito | Transferência - Liquidação | Qtd: 123 | PU: 31.79)
-       ocorrendo enquanto há um empréstimo BTC ativo de 1.777 ações (BBSE3):
-       garante que a compra real soma 123 ações e não é ignorada falsamente como devolução de BTC.
+    1. Compra real na bolsa (Credito | Transferência - Liquidação | Qtd: 100 | PU: 30.00)
+       ocorrendo enquanto há um empréstimo BTC ativo de 1.000 ações (BBSE3):
+       garante que a compra real soma 100 ações e não é ignorada falsamente como devolução de BTC.
     2. Caso ITSA2 / ITSA10 / Atualização:
-       - Direito de Subscrição ITSA2 (23 e 25 ações) -> ignorados
-       - Direito Sobras de Subscrição ITSA2 (1 ação) -> ignorado
+       - Direito de Subscrição ITSA2 (20 e 25 ações) -> ignorados
+       - Direito Sobras de Subscrição ITSA2 (5 ações) -> ignorado
        - Recibo de Subscrição ITSA10 (25 ações) -> ignorado
-       - Atualização ITSA4 (26 ações) -> ignorada
-       - Direitos de Subscrição - Exercido ITSA2 (25 ações @ 6.70 e 1 ação @ 6.70) -> viram BUY em ITSA4
-       Garante que o saldo soma apenas +26 ações em ITSA4.
+       - Atualização ITSA4 (30 ações) -> ignorada
+       - Direitos de Subscrição - Exercido ITSA2 (25 ações @ 7.00 e 5 ações @ 7.00) -> viram BUY em ITSA4
+       Garante que o saldo soma apenas +30 ações em ITSA4.
     """
     mov_data = [
-        # --- Caso 1: BBSE3 com Empréstimo BTC ativo de 1777 ações ---
-        # Saída para empréstimo BTC (1777 ações)
+        # --- Caso 1: BBSE3 com Empréstimo BTC ativo de 1000 ações ---
+        # Saída para empréstimo BTC (1000 ações)
         {
             "Data": "2025-08-20",
             "Movimentação": "Transferência - Liquidação",
             "Entrada/Saída": "Debito",
             "Produto": "BBSE3 - BB SEGURIDADE ON NM",
-            "Quantidade": 1777,
+            "Quantidade": 1000,
             "Preço unitário": 0.0,
             "Valor da Operação": 0.0,
         },
@@ -1803,59 +1803,59 @@ def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
             "Movimentação": "Empréstimo",
             "Entrada/Saída": "Debito",
             "Produto": "BBSE3 - BB SEGURIDADE ON NM",
-            "Quantidade": 1777,
+            "Quantidade": 1000,
             "Preço unitário": 30.00,
-            "Valor da Operação": 53310.00,
+            "Valor da Operação": 30000.00,
         },
-        # Compra real na bolsa enquanto o empréstimo de 1777 ações está ativo (123 ações @ 31.79)
+        # Compra real na bolsa enquanto o empréstimo de 1000 ações está ativo (100 ações @ 30.00)
         {
             "Data": "2025-08-22",
             "Movimentação": "Transferência - Liquidação",
             "Entrada/Saída": "Credito",
             "Produto": "BBSE3 - BB SEGURIDADE ON NM",
-            "Quantidade": 123,
-            "Preço unitário": 31.79,
-            "Valor da Operação": 3910.17,
+            "Quantidade": 100,
+            "Preço unitário": 30.00,
+            "Valor da Operação": 3000.00,
         },
 
         # --- Caso 1b: BBAS3 e VALE3 com Empréstimo BTC ativo concomitante ---
-        # BBAS3: Empréstimo de 5000 ações e compra real de 2000 ações na bolsa
+        # BBAS3: Empréstimo de 1000 ações e compra real de 500 ações na bolsa
         {
             "Data": "2024-12-10",
             "Movimentação": "Empréstimo",
             "Entrada/Saída": "Debito",
             "Produto": "BBAS3 - BRASIL ON NM",
-            "Quantidade": 5000,
+            "Quantidade": 1000,
             "Preço unitário": 25.00,
-            "Valor da Operação": 125000.00,
+            "Valor da Operação": 25000.00,
         },
         {
             "Data": "2024-12-20",
             "Movimentação": "Transferência - Liquidação",
             "Entrada/Saída": "Credito",
             "Produto": "BBAS3 - BRASIL ON NM",
-            "Quantidade": 2000,
-            "Preço unitário": 25.50,
-            "Valor da Operação": 51000.00,
+            "Quantidade": 500,
+            "Preço unitário": 25.00,
+            "Valor da Operação": 12500.00,
         },
-        # VALE3: Empréstimo de 1000 ações e compra real de 200 ações na bolsa
+        # VALE3: Empréstimo de 500 ações e compra real de 100 ações na bolsa
         {
             "Data": "2024-08-01",
             "Movimentação": "Empréstimo",
             "Entrada/Saída": "Debito",
             "Produto": "VALE3 - VALE ON NM",
-            "Quantidade": 1000,
+            "Quantidade": 500,
             "Preço unitário": 60.00,
-            "Valor da Operação": 60000.00,
+            "Valor da Operação": 30000.00,
         },
         {
             "Data": "2024-08-06",
             "Movimentação": "Transferência - Liquidação",
             "Entrada/Saída": "Credito",
             "Produto": "VALE3 - VALE ON NM",
-            "Quantidade": 200,
-            "Preço unitário": 55.20,
-            "Valor da Operação": 11040.00,
+            "Quantidade": 100,
+            "Preço unitário": 55.00,
+            "Valor da Operação": 5500.00,
         },
 
         # --- Caso 1c: Condição 2 (Transferência - Liquidação com PU>0 mas com Empréstimo de mesma Qtd na janela [-5, +1] -> ignorada como BTC) ---
@@ -1914,7 +1914,7 @@ def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
             "Movimentação": "Direito de Subscrição",
             "Entrada/Saída": "Credito",
             "Produto": "ITSA2 - ITAUSA PN",
-            "Quantidade": 23,
+            "Quantidade": 20,
             "Preço unitário": 0.0,
             "Valor da Operação": 0.0,
         },
@@ -1927,15 +1927,15 @@ def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
             "Preço unitário": 0.0,
             "Valor da Operação": 0.0,
         },
-        # Exercício de subscrição (25 ações @ 6.70) -> deve virar BUY em ITSA4
+        # Exercício de subscrição (25 ações @ 7.00) -> deve virar BUY em ITSA4
         {
             "Data": "2025-04-17",
             "Movimentação": "Direitos de Subscrição - Exercido",
             "Entrada/Saída": "Debito",
             "Produto": "ITSA2 - ITAUSA PN",
             "Quantidade": 25,
-            "Preço unitário": 6.70,
-            "Valor da Operação": 167.50,
+            "Preço unitário": 7.00,
+            "Valor da Operação": 175.00,
         },
         # Recibo de subscrição ITSA10 (deve ser completamente ignorado)
         {
@@ -1953,19 +1953,19 @@ def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
             "Movimentação": "Direito Sobras de Subscrição",
             "Entrada/Saída": "Credito",
             "Produto": "ITSA2 - ITAUSA PN",
-            "Quantidade": 1,
+            "Quantidade": 5,
             "Preço unitário": 0.0,
             "Valor da Operação": 0.0,
         },
-        # Exercício de sobras (1 ação @ 6.70) -> deve virar BUY em ITSA4
+        # Exercício de sobras (5 ações @ 7.00) -> deve virar BUY em ITSA4
         {
             "Data": "2025-05-08",
             "Movimentação": "Direitos de Subscrição - Exercido",
             "Entrada/Saída": "Debito",
             "Produto": "ITSA2 - ITAUSA PN",
-            "Quantidade": 1,
-            "Preço unitário": 6.70,
-            "Valor da Operação": 6.70,
+            "Quantidade": 5,
+            "Preço unitário": 7.00,
+            "Valor da Operação": 35.00,
         },
         # Atualização em ITSA4 (conversão administrativa dos recibos já contados no exercício) -> ignorada
         {
@@ -1973,7 +1973,7 @@ def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
             "Movimentação": "Atualização",
             "Entrada/Saída": "Credito",
             "Produto": "ITSA4 - ITAUSA PN",
-            "Quantidade": 26,
+            "Quantidade": 30,
             "Preço unitário": 0.0,
             "Valor da Operação": 0.0,
         },
@@ -1999,25 +1999,25 @@ def test_compra_com_aluguel_btc_ativo_e_subscricao_itsa2_itsa10(client):
     res_pos = client.get("/api/v1/posicoes?somente_com_saldo=false")
     pos_map = {p["ativo"]["ticker"]: p for p in res_pos.json()}
 
-    # BBSE3: A compra real de 123 ações na bolsa foi processada mesmo com empréstimo ativo de 1777 ações
+    # BBSE3: A compra real de 100 ações na bolsa foi processada mesmo com empréstimo ativo de 1000 ações
     assert "BBSE3" in pos_map
-    assert Decimal(str(pos_map["BBSE3"]["quantidade_saldo"])) == Decimal("123")
-    assert Decimal(str(pos_map["BBSE3"]["preco_medio_brl"])) == Decimal("31.79")
+    assert Decimal(str(pos_map["BBSE3"]["quantidade_saldo"])) == Decimal("100")
+    assert Decimal(str(pos_map["BBSE3"]["preco_medio_brl"])) == Decimal("30.00")
 
-    # BBAS3: A compra real de 2000 ações na bolsa foi processada mesmo com empréstimo ativo de 5000 ações
+    # BBAS3: A compra real de 500 ações na bolsa foi processada mesmo com empréstimo ativo de 1000 ações
     assert "BBAS3" in pos_map
-    assert Decimal(str(pos_map["BBAS3"]["quantidade_saldo"])) == Decimal("2000")
-    assert Decimal(str(pos_map["BBAS3"]["preco_medio_brl"])) == Decimal("25.50")
+    assert Decimal(str(pos_map["BBAS3"]["quantidade_saldo"])) == Decimal("500")
+    assert Decimal(str(pos_map["BBAS3"]["preco_medio_brl"])) == Decimal("25.00")
 
-    # VALE3: A compra real de 200 ações na bolsa foi processada mesmo com empréstimo ativo de 1000 ações
+    # VALE3: A compra real de 100 ações na bolsa foi processada mesmo com empréstimo ativo de 500 ações
     assert "VALE3" in pos_map
-    assert Decimal(str(pos_map["VALE3"]["quantidade_saldo"])) == Decimal("200")
-    assert Decimal(str(pos_map["VALE3"]["preco_medio_brl"])) == Decimal("55.20")
+    assert Decimal(str(pos_map["VALE3"]["quantidade_saldo"])) == Decimal("100")
+    assert Decimal(str(pos_map["VALE3"]["preco_medio_brl"])) == Decimal("55.00")
 
-    # ITSA4: Deve somar APENAS as 26 ações exercidas (25 + 1), ignorando direitos, sobras, ITSA10 e atualização
+    # ITSA4: Deve somar APENAS as 30 ações exercidas (25 + 5), ignorando direitos, sobras, ITSA10 e atualização
     assert "ITSA4" in pos_map
-    assert Decimal(str(pos_map["ITSA4"]["quantidade_saldo"])) == Decimal("26")
-    assert Decimal(str(pos_map["ITSA4"]["preco_medio_brl"])) == Decimal("6.70")
+    assert Decimal(str(pos_map["ITSA4"]["quantidade_saldo"])) == Decimal("30")
+    assert Decimal(str(pos_map["ITSA4"]["preco_medio_brl"])) == Decimal("7.00")
 
     # ITSA2 e ITSA10 não devem existir na carteira com saldo
     assert "ITSA10" not in pos_map

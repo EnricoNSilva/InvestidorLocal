@@ -169,16 +169,7 @@ async def reprocessar_renda_fixa(
             )
 
     try:
-        # 1. Remove ativos fantasmas de RF
-        ghosts = db.query(Ativo).filter(Ativo.ticker.in_(["CDB-BTG-20271220", "CDB-BTG-20271223"])).all()
-        for g in ghosts:
-            db.query(Transacao).filter(Transacao.carteira_id == cid, Transacao.ativo_id == g.id).delete(synchronize_session=False)
-            db.query(PosicaoConsolidada).filter(PosicaoConsolidada.carteira_id == cid, PosicaoConsolidada.ativo_id == g.id).delete(synchronize_session=False)
-            db.query(DetalhesRendaFixa).filter(DetalhesRendaFixa.ativo_id == g.id).delete(synchronize_session=False)
-            if db.query(Transacao).filter(Transacao.ativo_id == g.id).count() == 0:
-                db.delete(g)
-
-        # 2. Exclui transações e posições existentes de Renda Fixa na carteira (preserva RV intacta)
+        # 1. Exclui transações e posições existentes de Renda Fixa na carteira (preserva RV intacta)
         rf_ativos = db.query(Ativo).filter(Ativo.tipo == TipoAtivo.RendaFixa).all()
         rf_ids = [a.id for a in rf_ativos]
         if rf_ids:
@@ -190,6 +181,14 @@ async def reprocessar_renda_fixa(
                 PosicaoConsolidada.carteira_id == cid,
                 PosicaoConsolidada.ativo_id.in_(rf_ids),
             ).delete(synchronize_session=False)
+
+        db.flush()
+
+        # 2. Remove ativos de RF órfãos que ficaram sem nenhuma transação em nenhuma carteira
+        for a in rf_ativos:
+            if db.query(Transacao).filter(Transacao.ativo_id == a.id).count() == 0:
+                db.query(DetalhesRendaFixa).filter(DetalhesRendaFixa.ativo_id == a.id).delete(synchronize_session=False)
+                db.delete(a)
 
         db.flush()
 

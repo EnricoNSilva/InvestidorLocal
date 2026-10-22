@@ -144,7 +144,7 @@ def test_validacao_real_bonds_json():
     import json
     from app.schemas.renda_fixa import CotacaoTesouroResponse
 
-    bonds_path = Path("c:/Users/eoric/Marcacaoamercado/bonds.json")
+    bonds_path = Path(__file__).parent / "fixtures" / "bonds.json"
     if bonds_path.exists():
         conteudo = json.loads(bonds_path.read_text(encoding="utf-8"))
         resp = CotacaoTesouroResponse.model_validate(conteudo)

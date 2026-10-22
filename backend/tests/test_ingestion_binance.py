@@ -53,31 +53,31 @@ def create_market_order_excel() -> bytes:
 
 
 def create_complete_multi_sheet_excel() -> bytes:
-    """Gera planilha Excel simulada com todas as 15 abas / seções do relatório da Binance."""
+    """Gera planilha Excel simulada com todas as abas / seções do relatório da Binance."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        # 1. Account Balance (com seção Earn idêntica à planilha real da Binance)
+        # 1. Account Balance (com seção Earn simulada)
         rows_acc = [
             ["Spot", None, None, None, None, None, None],
             ["Currency Name", "Currency Code", "All Positions", "Available Positions", "In Withdrawal", "Pending Order", "BTC Equivalent"],
-            ["BRL", " ", "0.29759", "0.29759", "0", "0", "7.5E-7"],
+            ["BRL", " ", "0.50", "0.50", "0", "0", "1E-6"],
             ["Earn - 币安宝账户 - 活期", None, None, None, None, None, None],
             ["Product Name", "Total Amount", "Accruing Interest", "Today Purchased Amount", "Redeeming Amount", "Total Interest", "Average Annual Interest Rate"],
-            ["AAVE", "0.68615569", "0.68615569", " ", "0", "0.00084169", " "],
-            ["BTC", "0.03331993", "0.03331993", "6E-8", "0", "0.00001784", " "],
-            ["ERA", "0.05287865", "0.05287865", " ", "0", "0.22263803", " "],
-            ["ETH", "0.06305088", "0.06305088", "1.7E-7", "0", "0.00264288", " "],
-            ["PENDLE", "53.87743840", "53.87743840", " ", "0", "0.13123840", " "],
-            ["SOL", "2.35153998", "2.35153998", " ", "0", "0.20111941", " "],
-            ["SXT", "0.08009479", "0.08009479", " ", "0", "0.05830516", " "],
-            ["USDT", "0.85524496", "0.85524496", "0.00009368", "0", "14.01076100", " "],
+            ["AAVE", "2.01000000", "2.01000000", " ", "0", "0.01000000", " "],
+            ["BTC", "0.06001500", "0.06001500", "1E-7", "0", "0.00001500", " "],
+            ["ERA", "0.02500000", "0.02500000", " ", "0", "0.10000000", " "],
+            ["ETH", "0.50250000", "0.50250000", "1E-7", "0", "0.00250000", " "],
+            ["PENDLE", "50.25000000", "50.25000000", " ", "0", "0.25000000", " "],
+            ["SOL", "5.10000000", "5.10000000", " ", "0", "0.10000000", " "],
+            ["SXT", "0.04000000", "0.04000000", " ", "0", "0.05000000", " "],
+            ["USDT", "1.00000000", "1.00000000", "0.00010000", "0", "12.50000000", " "],
         ]
         df_acc = pd.DataFrame(rows_acc)
         df_acc.to_excel(writer, index=False, header=False, sheet_name="Account Balance")
 
         # 3. Fiat Deposit History (PIX)
         df_fiat = pd.DataFrame([
-            {"Input Time": "2024-01-05 10:00:00", "Amount": 51162.03, "Fiat Currency": "BRL", "Status": "Successful", "Method": "PIX"},
+            {"Input Time": "2024-01-05 10:00:00", "Amount": 25000.00, "Fiat Currency": "BRL", "Status": "Successful", "Method": "PIX"},
         ])
         df_fiat.to_excel(writer, index=False, sheet_name="Fiat Deposit History")
 
@@ -88,15 +88,15 @@ def create_complete_multi_sheet_excel() -> bytes:
         df_dep.to_excel(writer, index=False, sheet_name="Deposit History")
 
         df_with = pd.DataFrame([
-            {"Time": "2024-02-15 15:00:00", "Coin": "BTC", "Amount": 0.04229884, "Status": "Completed"},
-            {"Time": "2024-02-20 16:00:00", "Coin": "ETH", "Amount": 0.53085000, "Status": "Completed"},
-            {"Time": "2024-03-01 12:00:00", "Coin": "SOL", "Amount": 22.86095155, "Status": "Completed"},
+            {"Time": "2024-02-15 15:00:00", "Coin": "BTC", "Amount": 0.05000000, "Status": "Completed"},
+            {"Time": "2024-02-20 16:00:00", "Coin": "ETH", "Amount": 1.00000000, "Status": "Completed"},
+            {"Time": "2024-03-01 12:00:00", "Coin": "SOL", "Amount": 15.00000000, "Status": "Completed"},
         ])
         df_with.to_excel(writer, index=False, sheet_name="Withdrawal History")
 
         # 5. Binance Pay & Card
         df_pay = pd.DataFrame([
-            {"Time": "2024-03-05 18:00:00", "Amount": -248.02, "Currency": "BRL", "Status": "Completed", "Type": "Expense"},
+            {"Time": "2024-03-05 18:00:00", "Amount": -150.00, "Currency": "BRL", "Status": "Completed", "Type": "Expense"},
         ])
         df_pay.to_excel(writer, index=False, sheet_name="Binance Pay")
 
@@ -124,7 +124,7 @@ def create_complete_multi_sheet_excel() -> bytes:
                 "Status": "FILLED",
                 "Price": 0.0,
                 "Average Price": 40000.00,
-                "Trade Qty": 0.0656,
+                "Trade Qty": 0.10,
                 "Fee": 0.0,
                 "Fee Coin": "BTC",
                 "Amount Unit": "BTC",
@@ -138,7 +138,7 @@ def create_complete_multi_sheet_excel() -> bytes:
                 "Status": "FILLED",
                 "Price": 2500.00,
                 "Average Price": 2500.00,
-                "Trade Qty": 0.5939,
+                "Trade Qty": 1.50,
                 "Fee": 0.0,
                 "Fee Coin": "ETH",
                 "Amount Unit": "ETH",
@@ -152,7 +152,7 @@ def create_complete_multi_sheet_excel() -> bytes:
                 "Status": "FILLED",
                 "Price": 100.00,
                 "Average Price": 100.00,
-                "Trade Qty": 25.212,
+                "Trade Qty": 20.00,
                 "Fee": 0.0,
                 "Fee Coin": "SOL",
                 "Amount Unit": "SOL",
@@ -166,7 +166,7 @@ def create_complete_multi_sheet_excel() -> bytes:
                 "Status": "FILLED",
                 "Price": 1.50,
                 "Average Price": 1.50,
-                "Trade Qty": 53.877,
+                "Trade Qty": 50.00,
                 "Fee": 0.0,
                 "Fee Coin": "PENDLE",
                 "Amount Unit": "PENDLE",
@@ -180,7 +180,7 @@ def create_complete_multi_sheet_excel() -> bytes:
                 "Status": "FILLED",
                 "Price": 100.00,
                 "Average Price": 100.00,
-                "Trade Qty": 0.686,
+                "Trade Qty": 2.00,
                 "Fee": 0.0,
                 "Fee Coin": "AAVE",
                 "Amount Unit": "AAVE",
@@ -197,9 +197,9 @@ def create_complete_multi_sheet_excel() -> bytes:
                 "Quote Asset": "USDT",
                 "Side": "SELL",
                 "Status": "SUCCESS",
-                "Price": 0.10,
-                "Trade Qty": 16.0,
-                "Amount": 1.60,
+                "Price": 0.20,
+                "Trade Qty": 10.0,
+                "Amount": 2.00,
             }
         ])
         df_otc.to_excel(writer, index=False, sheet_name="OTC Trading")
@@ -242,8 +242,8 @@ def test_complete_multi_sheet_ingestion(db_session, carteira_teste):
     with patch("app.services.ingestion.parser_binance.get_ptax_venda", return_value=Decimal("5.20")):
         res = processar_planilha_binance(db=db_session, file_content=content, carteira_id=carteira_teste.id)
 
-    assert round(res["fiat_depositado_brl"], 2) == Decimal("51162.03")
-    assert round(res["gastos_pay_card_brl"], 2) == Decimal("248.02")
+    assert round(res["fiat_depositado_brl"], 2) == Decimal("25000.00")
+    assert round(res["gastos_pay_card_brl"], 2) == Decimal("150.00")
     assert "custodia_detalhada" in res
 
     custodia = res["custodia_detalhada"]
@@ -254,11 +254,11 @@ def test_complete_multi_sheet_ingestion(db_session, carteira_teste):
     assert "AAVE" in custodia
 
     # Reconciliação física dos 8 decimais
-    assert pytest.approx(custodia["BTC"]["qtd_total"], 1e-8) == 0.06561877
-    assert pytest.approx(custodia["ETH"]["qtd_total"], 1e-8) == 0.59390088
-    assert pytest.approx(custodia["SOL"]["qtd_total"], 1e-8) == 25.21249153
-    assert pytest.approx(custodia["PENDLE"]["qtd_total"], 1e-8) == 53.87743840
-    assert pytest.approx(custodia["AAVE"]["qtd_total"], 1e-8) == 0.68615569
+    assert pytest.approx(custodia["BTC"]["qtd_total"], 1e-8) == 0.10001500
+    assert pytest.approx(custodia["ETH"]["qtd_total"], 1e-8) == 1.50250000
+    assert pytest.approx(custodia["SOL"]["qtd_total"], 1e-8) == 20.10000000
+    assert pytest.approx(custodia["PENDLE"]["qtd_total"], 1e-8) == 50.25000000
+    assert pytest.approx(custodia["AAVE"]["qtd_total"], 1e-8) == 2.01000000
 
     # Divisão entre Autocustódia e Earn
     assert custodia["BTC"]["pct_earn"] > 0
@@ -280,7 +280,7 @@ def test_complete_multi_sheet_ingestion(db_session, carteira_teste):
     with open(meta_file, "r", encoding="utf-8") as f:
         meta_data = json.load(f)
     assert meta_data["carteira_id"] == carteira_teste.id
-    assert meta_data["fiat_depositado_brl"] == 51162.03
+    assert meta_data["fiat_depositado_brl"] == 25000.00
 
 
 def test_non_crypto_assets_preserved_during_binance_ingestion(db_session, carteira_teste):
@@ -388,7 +388,7 @@ def test_airdrop_dust_ignored_keeps_positions_closed(db_session, carteira_teste)
     assert custodia["SXT"]["qtd_total"] == 0.0
     assert custodia["SXT"]["preco_medio_usd"] == 0.0
     assert custodia["SXT"]["custo_total_usd"] == 0.0
-    assert custodia["SXT"]["quantidade_vendida"] == 16.0
+    assert custodia["SXT"]["quantidade_vendida"] == 10.0
 
 
 def test_usdt_interest_not_injected_into_sol(db_session, carteira_teste):
@@ -413,7 +413,7 @@ def test_usdt_interest_not_injected_into_sol(db_session, carteira_teste):
     meta_file = CACHE_DIR / f"binance_metadata_{carteira_teste.id}.json"
     with open(meta_file, "r", encoding="utf-8") as f:
         meta_data = json.load(f)
-    assert meta_data["earn_usdt_usd"] == 14.010761
+    assert meta_data["earn_usdt_usd"] == 12.50
 
 
 @pytest.mark.anyio
@@ -464,7 +464,7 @@ def test_valuable_residual_crypto_not_zeroed_by_dust_filter(db_session, carteira
             ["Earn - 币安宝账户 - 活期", None, None, None, None, None, None],
             ["Product Name", "Total Amount", "Accruing Interest", "Today Purchased Amount", "Redeeming Amount", "Total Interest", "Average Annual Interest Rate"],
             ["BTC", "0.05000000", "0.05000000", " ", "0", "0.00001000", " "],
-            ["ERA", "0.05287865", "0.05287865", " ", "0", "0.00001000", " "],
+            ["ERA", "0.02500000", "0.02500000", " ", "0", "0.00001000", " "],
         ]
         pd.DataFrame(rows_acc).to_excel(writer, index=False, header=False, sheet_name="Account Balance")
 

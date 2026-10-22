@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 // Importa motor original
-import * as originalEngine from 'file:///C:/Users/eoric/Marcacaoamercado/src/core/index.js';
-import { DEFAULT_LOTS, DEFAULT_STATE } from 'file:///C:/Users/eoric/Marcacaoamercado/src/state/defaults.js';
+import * as originalEngine from '../../../reference-engine/src/core/index.js';
+import { DEFAULT_LOTS, DEFAULT_STATE } from '../../../reference-engine/src/state/defaults.js';
 
 const {
   toDayNum,
@@ -334,7 +334,7 @@ const projCurvas = {
 const goldenMasterData = {
   metadata: {
     generatedAt: new Date().toISOString(),
-    sourceRepo: 'c:/Users/eoric/Marcacaoamercado',
+    sourceRepo: 'tesouro-renda-mais-reference-engine',
     engineVersion: 'original-js-1:1'
   },
   easterTests,
