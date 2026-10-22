@@ -1,4 +1,13 @@
 <div class="carteira-view">
+  <!-- Toast Flutuante de Sucesso / Confirmação -->
+  <div *ngIf="toastSucesso()" class="toast-notification success" role="alert">
+    <div class="toast-content">
+      <span class="toast-icon">✅</span>
+      <span class="toast-text">{{ toastSucesso() }}</span>
+    </div>
+    <button type="button" class="btn-close-toast" (click)="fecharToast()">&times;</button>
+  </div>
+
   <!-- Barra de Gestão de Carteiras -->
   <div class="carteira-selector-bar">
     <div class="selector-left">
@@ -33,6 +42,7 @@
 
     <div class="selector-actions">
       <button
+        type="button"
         class="btn-action btn-add"
         (click)="abrirModalNovaCarteira()"
         title="Criar uma nova carteira vazia"
@@ -52,6 +62,7 @@
       </button>
 
       <button
+        type="button"
         class="btn-action btn-clear"
         (click)="confirmarLimparCarteira()"
         [disabled]="limpandoCarteira()"
@@ -74,6 +85,7 @@
       </button>
 
       <button
+        type="button"
         class="btn-action btn-delete"
         (click)="confirmarExcluirCarteira()"
         [disabled]="carteiraService.carteiras().length <= 1 || excluindoCarteira()"
@@ -97,76 +109,286 @@
     </div>
   </div>
 
+  <!-- Cabeçalho Principal e Botões de Ação -->
   <div class="view-header">
-    <div>
+    <div class="title-container">
       <h1 class="view-title">{{ carteiraNome() }}</h1>
-      <p class="view-subtitle">
-        {{ carteiraDescricao() }}
-      </p>
+      <p class="view-subtitle">{{ carteiraDescricao() }}</p>
     </div>
-    <button class="btn-refresh" (click)="carregarPosicoes()" [disabled]="loading()">
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        [class.spinning]="loading()"
+
+    <div class="header-action-buttons">
+      <button
+        type="button"
+        class="btn-primary-action"
+        (click)="abrirModalNovaOperacao()"
+        title="Cadastrar compra, venda ou provento manual"
       >
-        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
-      </svg>
-      <span>Atualizar</span>
-    </button>
-  </div>
+        <span class="btn-icon">➕</span>
+        <span>Nova Operação / Provento</span>
+      </button>
 
-  <!-- Cards Métricas Superiores -->
-  <div class="metrics-grid">
-    <div class="metric-card">
-      <div class="metric-icon green">
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <line x1="12" y1="1" x2="12" y2="23"></line>
-          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-        </svg>
-      </div>
-      <div class="metric-info">
-        <span class="metric-label">Patrimônio em Custo Total</span>
-        <span class="metric-value">{{ formatarMoeda(totalPatrimonioCusto()) }}</span>
-        <span class="metric-hint">Base contábil / fiscal de aquisição</span>
-      </div>
-    </div>
+      <button
+        type="button"
+        class="btn-secondary-action"
+        (click)="atualizarCotacoes()"
+        [disabled]="store.syncingCotacoes()"
+        title="Consultar cotações atualizadas na B3 / Yahoo Finance"
+      >
+        <span class="btn-icon" [class.spinning]="store.syncingCotacoes()">🔄</span>
+        <span>{{ store.syncingCotacoes() ? 'Atualizando...' : 'Atualizar Cotações B3' }}</span>
+      </button>
 
-    <div class="metric-card">
-      <div class="metric-icon blue">
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-          <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-        </svg>
-      </div>
-      <div class="metric-info">
-        <span class="metric-label">Ativos em Custódia</span>
-        <span class="metric-value">{{ totalAtivos() }}</span>
-        <span class="metric-hint">Ações, FIIs e Criptoativos</span>
-      </div>
+      <button
+        type="button"
+        class="btn-secondary-action"
+        (click)="recalcularCarteira()"
+        [disabled]="store.loading()"
+        title="Recalcular CMPM, YoC e lucros consolidados"
+      >
+        <span class="btn-icon" [class.spinning]="store.loading()">🧮</span>
+        <span>Recalcular Carteira</span>
+      </button>
     </div>
   </div>
 
-  <!-- Feedback de Erro -->
-  <div *ngIf="errorMessage()" class="alert-box error">
+  <!-- Abas de Filtro por Classe e Barra de Busca -->
+  <div class="filter-toolbar">
+    <div class="class-tabs">
+      <button
+        type="button"
+        class="tab-btn"
+        [class.active]="store.filtroClasse() === 'RV_TOTAL'"
+        (click)="selecionarAbaClasse('RV_TOTAL')"
+      >
+        <span>📈 Ações & FIIs</span>
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        [class.active]="store.filtroClasse() === 'ACAO'"
+        (click)="selecionarAbaClasse('ACAO')"
+      >
+        <span>🏢 Somente Ações</span>
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        [class.active]="store.filtroClasse() === 'FII'"
+        (click)="selecionarAbaClasse('FII')"
+      >
+        <span>🧱 Somente FIIs</span>
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        [class.active]="store.filtroClasse() === 'CRIPTO'"
+        (click)="selecionarAbaClasse('CRIPTO')"
+      >
+        <span>₿ Cripto</span>
+      </button>
+
+      <div class="tab-with-shortcut">
+        <button
+          type="button"
+          class="tab-btn"
+          [class.active]="store.filtroClasse() === 'RENDA_FIXA'"
+          (click)="selecionarAbaClasse('RENDA_FIXA')"
+        >
+          <span>🏛️ Renda Fixa</span>
+        </button>
+        <a routerLink="/renda-fixa" class="tab-shortcut-link" title="Ir para módulo avançado de Renda Fixa">
+          ↗
+        </a>
+      </div>
+
+      <button
+        type="button"
+        class="tab-btn"
+        [class.active]="store.filtroClasse() === 'PATRIMONIO'"
+        (click)="selecionarAbaClasse('PATRIMONIO')"
+      >
+        <span>🌐 Patrimônio Total</span>
+      </button>
+    </div>
+
+    <!-- Campo de Busca Rápida -->
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input
+        type="text"
+        class="search-input"
+        placeholder="Buscar ticker, nome ou setor..."
+        [value]="store.buscaTexto()"
+        (input)="onBuscaChange($event)"
+      />
+      <button
+        *ngIf="store.buscaTexto()"
+        type="button"
+        class="btn-clear-search"
+        (click)="limparBusca()"
+      >
+        &times;
+      </button>
+    </div>
+  </div>
+
+  <!-- Os 6 KPI Cards Dinâmicos -->
+  <div class="kpi-grid">
+    <!-- Card 1: Montante Aportado (Custo Fiscal) -->
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-label">Montante Aportado (Custo)</span>
+        <span class="kpi-icon-pill icon-blue">💼</span>
+      </div>
+      <div class="kpi-value font-mono">
+        {{ formatarMoeda(store.kpis().montanteAportadoBrl) }}
+      </div>
+      <div
+        class="kpi-subvalue font-mono"
+        *ngIf="store.filtroClasse() === 'CRIPTO' && store.resumoBinance()"
+      >
+        <span>Depósitos PIX: {{ formatarMoeda(store.resumoBinance()?.fiat_depositado_brl || 0) }}</span>
+        <span> • Lucro Reinvestido: +{{ formatarMoeda(store.kpis().lucroRealizadoTotalBrl) }}</span>
+        <span *ngIf="store.resumoBinance()?.gastos_pay_card_brl"> • Pay/Card: -{{ formatarMoeda(store.resumoBinance()?.gastos_pay_card_brl || 0) }}</span>
+      </div>
+      <div class="kpi-footer">
+        <span class="kpi-hint">{{ store.kpis().qtdAtivosCustodia }} ativos em custódia</span>
+        <button
+          *ngIf="store.kpis().qtdAtivosCustoPendente > 0"
+          type="button"
+          class="badge-alerta-custo"
+          [class.active]="filtrarApenasCustoPendente()"
+          (click)="toggleFiltroCustoPendente()"
+          title="Clique para filtrar ativos com Preço Médio a definir"
+        >
+          ⚠️ {{ store.kpis().qtdAtivosCustoPendente }} com PM a definir
+        </button>
+      </div>
+    </div>
+
+    <!-- Card 2: Patrimônio Atual a Mercado -->
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-label">Patrimônio Atual a Mercado</span>
+        <span class="badge-status-cotacao" [ngClass]="getStatusGeralCotacoes().classe">
+          {{ getStatusGeralCotacoes().text }}
+        </span>
+      </div>
+      <div class="kpi-value font-mono font-bold">
+        {{ formatarMoeda(store.kpis().patrimonioMercadoBrl) }}
+      </div>
+      <div
+        class="kpi-subvalue font-mono"
+        *ngIf="store.filtroClasse() === 'CRIPTO' && (store.kpis().patrimonioMercadoBtc || store.kpis().patrimonioMercadoUsd)"
+      >
+        <span *ngIf="store.kpis().patrimonioMercadoBtc">₿ {{ formatarQuantidade(store.kpis().patrimonioMercadoBtc || 0, 'Cripto') }} BTC</span>
+        <span *ngIf="store.kpis().patrimonioMercadoBtc && store.kpis().patrimonioMercadoUsd"> • </span>
+        <span *ngIf="store.kpis().patrimonioMercadoUsd">{{ formatarUsd(store.kpis().patrimonioMercadoUsd) }}</span>
+        <span *ngIf="store.cotacaoUsdBrl()"> (USDT @ {{ formatarMoeda(store.cotacaoUsdBrl() || 0) }})</span>
+      </div>
+      <div class="kpi-footer">
+        <span class="kpi-hint" *ngIf="store.cotacoesMeta().atualizadoEm">
+          Atualizado às {{ store.cotacoesMeta().atualizadoEm | date:'HH:mm (dd/MM)' }}
+        </span>
+        <span class="kpi-hint" *ngIf="!store.cotacoesMeta().atualizadoEm">
+          Cotações locais de referência
+        </span>
+      </div>
+    </div>
+
+    <!-- Card 3: Valorização da Cota (Aberto) -->
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-label">Valorização da Cota (Aberto)</span>
+        <span
+          class="kpi-pill"
+          [class.positive]="store.kpis().valorizacaoCotaBrl >= 0"
+          [class.negative]="store.kpis().valorizacaoCotaBrl < 0"
+        >
+          {{ formatarPercentual(store.kpis().valorizacaoCotaPct) }}
+        </span>
+      </div>
+      <div
+        class="kpi-value font-mono"
+        [class.positive-text]="store.kpis().valorizacaoCotaBrl >= 0"
+        [class.negative-text]="store.kpis().valorizacaoCotaBrl < 0"
+      >
+        {{ formatarMoeda(store.kpis().valorizacaoCotaBrl) }}
+      </div>
+      <div class="kpi-footer">
+        <span class="kpi-hint">Ganho / Perda não realizado</span>
+      </div>
+    </div>
+
+    <!-- Card 4: Proventos Recebidos -->
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-label">{{ store.filtroClasse() === 'CRIPTO' ? 'Rendimentos Recebidos (EARN)' : 'Proventos Recebidos' }}</span>
+        <span class="kpi-pill yoc-pill">
+          YoC: {{ formatarPercentual(store.kpis().yocCarteiraPct, false) }}
+        </span>
+      </div>
+      <div class="kpi-value font-mono proventos-text">
+        {{ formatarMoeda(store.kpis().proventosRecebidosBrl) }}
+      </div>
+      <div class="kpi-footer">
+        <span class="kpi-hint" *ngIf="store.filtroClasse() === 'CRIPTO'">
+          Staking flexível & Simple Earn Binance
+        </span>
+        <span class="kpi-hint" *ngIf="store.filtroClasse() !== 'CRIPTO'">
+          Abatimento médio no PM: {{ formatarPercentual(store.kpis().reducaoMediaPmPct, false) }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Card 5: Retorno Total (Cota + Proventos + Realizado) -->
+    <div class="kpi-card highlight-card">
+      <div class="kpi-header">
+        <span class="kpi-label">Retorno Total Acumulado</span>
+        <span
+          class="kpi-pill"
+          [class.positive]="store.kpis().retornoTotalBrl >= 0"
+          [class.negative]="store.kpis().retornoTotalBrl < 0"
+        >
+          {{ formatarPercentual(store.kpis().retornoTotalPct) }}
+        </span>
+      </div>
+      <div
+        class="kpi-value font-mono font-bold"
+        [class.positive-text]="store.kpis().retornoTotalBrl >= 0"
+        [class.negative-text]="store.kpis().retornoTotalBrl < 0"
+      >
+        {{ formatarMoeda(store.kpis().retornoTotalBrl) }}
+      </div>
+      <div class="kpi-footer">
+        <span class="kpi-hint">Cota + Dividendos + Lucro Vendas</span>
+      </div>
+    </div>
+
+    <!-- Card 6: Lucro / Prejuízo Realizado -->
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-label">Lucro / Prejuízo Realizado</span>
+        <span class="kpi-icon-pill icon-gold">⚖️</span>
+      </div>
+      <div
+        class="kpi-value font-mono"
+        [class.positive-text]="store.kpis().lucroRealizadoTotalBrl >= 0"
+        [class.negative-text]="store.kpis().lucroRealizadoTotalBrl < 0"
+      >
+        {{ formatarMoeda(store.kpis().lucroRealizadoTotalBrl) }}
+      </div>
+      <div class="kpi-footer">
+        <span class="kpi-hint">Resultado encerrado em vendas</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback de Erro ou Alerta Global -->
+  <div *ngIf="store.error()" class="alert-box error">
     <svg
       width="20"
       height="20"
@@ -179,91 +401,683 @@
       <line x1="12" y1="8" x2="12" y2="12"></line>
       <line x1="12" y1="16" x2="12.01" y2="16"></line>
     </svg>
-    <span>{{ errorMessage() }}</span>
+    <span>{{ store.error() }}</span>
   </div>
 
-  <!-- Tabela de Posições -->
+  <!-- Grid dos 3 Gráficos Chart.js -->
+  <div class="charts-grid">
+    <app-carteira-allocation-chart
+      [data]="store.chartAlocacaoClasseSetor()"
+    ></app-carteira-allocation-chart>
+
+    <app-carteira-concentration-chart
+      [data]="store.chartPesoAtivos()"
+    ></app-carteira-concentration-chart>
+
+    <app-carteira-proventos-chart
+      [data]="store.chartRankingProventos()"
+      [titulo]="store.filtroClasse() === 'CRIPTO' ? 'Top Geradores de Rendimentos (EARN)' : 'Top Geradores de Proventos & YoC'"
+      [subtitulo]="store.filtroClasse() === 'CRIPTO' ? 'Rendimentos acumulados de Staking / Binance Earn' : 'Total acumulado recebido (R$) vs. Yield on Cost (%)'"
+    ></app-carteira-proventos-chart>
+  </div>
+
+  <!-- Tabela Completa de 14 Colunas -->
   <div class="table-container">
     <div class="table-header">
-      <h2 class="table-title">Posições de Estoque</h2>
-      <span class="table-counter">{{ posicoes().length }} ativos com saldo</span>
+      <div class="table-title-area">
+        <h2 class="table-title">Custódia e Gestão de Posições</h2>
+        <span class="table-counter">{{ posicoesTabela().length }} ativos na visão</span>
+        <span *ngIf="filtrarApenasCustoPendente()" class="filter-active-tag">
+          Filtrando apenas custo pendente
+          <button type="button" class="btn-clear-tag" (click)="toggleFiltroCustoPendente()">&times;</button>
+        </span>
+      </div>
+
+      <div class="custodia-toggle-group">
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.active]="store.visaoCustodia() === 'ATIVAS'"
+          (click)="selecionarVisaoCustodia('ATIVAS')"
+        >
+          <span>🟢 Em Custódia (Ativas)</span>
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.active]="store.visaoCustodia() === 'ENCERRADAS'"
+          (click)="selecionarVisaoCustodia('ENCERRADAS')"
+        >
+          <span>🏁 Posições Encerradas (Já Vendidas)</span>
+        </button>
+      </div>
     </div>
 
-    <div *ngIf="loading()" class="loading-state">
+    <div *ngIf="store.loading()" class="loading-state">
       <div class="spinner"></div>
       <p>Carregando posições da carteira...</p>
     </div>
 
-    <div *ngIf="!loading() && posicoes().length === 0 && !errorMessage()" class="empty-state">
-      <div class="empty-icon">
-        <svg
-          width="48"
-          height="48"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-        >
-          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-        </svg>
-      </div>
-      <h3>Sua carteira está vazia</h3>
-      <p>
-        Importe suas planilhas de negociação da B3 ou Binance para visualizar suas posições
-        consolidadas.
+    <div *ngIf="!store.loading() && posicoesTabela().length === 0" class="empty-state">
+      <div class="empty-icon">📊</div>
+      <h3>Nenhum ativo encontrado</h3>
+      <p *ngIf="store.buscaTexto() || filtrarApenasCustoPendente()">
+        Nenhum ativo corresponde aos filtros aplicados. Tente limpar o filtro ou a busca.
       </p>
-      <a routerLink="/importacao" class="btn-primary">Importar Planilhas Agora</a>
+      <p *ngIf="!store.buscaTexto() && !filtrarApenasCustoPendente()">
+        Sua carteira está sem posições nesta classe. Importe planilhas de negociação da B3 ou cadastre uma nova operação.
+      </p>
+      <div class="empty-actions">
+        <button
+          *ngIf="store.buscaTexto() || filtrarApenasCustoPendente()"
+          type="button"
+          class="btn-secondary"
+          (click)="limparBusca(); filtrarApenasCustoPendente.set(false)"
+        >
+          Limpar Filtros
+        </button>
+        <button
+          type="button"
+          class="btn-primary"
+          (click)="abrirModalNovaOperacao()"
+        >
+          + Cadastrar Operação
+        </button>
+        <a routerLink="/importacao" class="btn-secondary">Importar Planilhas B3</a>
+      </div>
     </div>
 
-    <div class="table-responsive" *ngIf="!loading() && posicoes().length > 0">
+    <div class="table-responsive" *ngIf="!store.loading() && posicoesTabela().length > 0 && store.visaoCustodia() === 'ATIVAS'">
       <table class="data-table">
         <thead>
           <tr>
-            <th>Ativo / Ticker</th>
-            <th>Nome</th>
-            <th>Classe</th>
-            <th class="text-right">Quantidade</th>
-            <th class="text-right">Custo Total (R$)</th>
-            <th class="text-right">Preço Médio (R$)</th>
+            <!-- 1. Ativo / Ticker -->
+            <th class="sortable" (click)="ordenarPor('ticker')">
+              <div class="th-content">
+                <span>Ativo / Ticker</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'ticker'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 2. Classe -->
+            <th class="sortable" (click)="ordenarPor('tipo')">
+              <div class="th-content">
+                <span>Classe</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'tipo'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 3. Quantidade -->
+            <th class="sortable text-right" (click)="ordenarPor('quantidade')">
+              <div class="th-content justify-end">
+                <span>Qtd.</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'quantidade'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 4. PM Contábil -->
+            <th class="sortable text-right" (click)="ordenarPor('pmContabil')">
+              <div class="th-content justify-end">
+                <span>{{ store.filtroClasse() === 'CRIPTO' ? 'PM de Compra' : 'PM Contábil' }}</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'pmContabil'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 5. Div. / Ação -->
+            <th class="sortable text-right" (click)="ordenarPor('dividendoPorAcao')">
+              <div class="th-content justify-end">
+                <span>{{ store.filtroClasse() === 'CRIPTO' ? 'Rend. / Moeda' : 'Div. / Ação' }}</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'dividendoPorAcao'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 6. PM Ajustado (c/ Div.) -->
+            <th class="sortable text-right" (click)="ordenarPor('pmAjustado')">
+              <div class="th-content justify-end">
+                <span>PM Ajustado</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'pmAjustado'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 7. Cotação Atual -->
+            <th class="sortable text-right" (click)="ordenarPor('cotacaoAtual')">
+              <div class="th-content justify-end">
+                <span>Cotação</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'cotacaoAtual'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 8. Custo Aportado -->
+            <th class="sortable text-right" (click)="ordenarPor('custoTotal')">
+              <div class="th-content justify-end">
+                <span>Custo Total</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'custoTotal'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 9. Valor Atual -->
+            <th class="sortable text-right" (click)="ordenarPor('valorMercado')">
+              <div class="th-content justify-end">
+                <span>Valor Mercado</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'valorMercado'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 10. Rentab. Cota % -->
+            <th class="sortable text-right" (click)="ordenarPor('rentabCotaPct')">
+              <div class="th-content justify-end">
+                <span>Rent. Cota</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'rentabCotaPct'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 11. Rentab. Total (c/ Div.) % -->
+            <th class="sortable text-right" (click)="ordenarPor('rentabTotalComDivPct')">
+              <div class="th-content justify-end">
+                <span>Rent. Total</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'rentabTotalComDivPct'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 12. YoC % -->
+            <th class="sortable text-right" (click)="ordenarPor('yocPct')">
+              <div class="th-content justify-end">
+                <span>YoC %</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'yocPct'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 13. % Carteira -->
+            <th class="sortable text-right" (click)="ordenarPor('pesoCarteiraPct')">
+              <div class="th-content justify-end">
+                <span>% Carteira</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'pesoCarteiraPct'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 14. Ações -->
+            <th class="text-center">Ações</th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let pos of posicoes()">
+          <tr
+            *ngFor="let pos of posicoesTabela()"
+            [class.row-alerta]="pos.custoPendente"
+            [class.row-updated-flash]="ultimoAtivoAtualizadoId() === pos.ativo.id"
+          >
+            <!-- 1. Ativo / Ticker -->
             <td class="ticker-cell">
-              <span class="ticker-symbol">{{ pos.ativo?.ticker || 'N/D' }}</span>
+              <div class="ticker-box">
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                  <span class="ticker-symbol">{{ pos.ativo.ticker }}</span>
+                  <button
+                    *ngIf="pos.codigoRfbIrpf"
+                    type="button"
+                    class="badge-irpf"
+                    (click)="copiarTextoIrpf(pos, $event)"
+                    title="Copiar texto padrão da declaração de Bens e Direitos para o IRPF"
+                  >
+                    📋 IRPF {{ pos.codigoRfbIrpf }}
+                  </button>
+                </div>
+                <span class="ticker-name" [title]="pos.ativo.nome">{{ pos.ativo.nome }}</span>
+                <span class="ticker-setor" *ngIf="pos.ativo.setor">{{ pos.ativo.setor }}</span>
+              </div>
             </td>
-            <td class="name-cell">{{ pos.ativo?.nome || '-' }}</td>
+
+            <!-- 2. Classe -->
             <td>
-              <span class="badge" [ngClass]="getBadgeClass(pos.ativo?.tipo)">
-                {{ pos.ativo?.tipo || 'Outro' }}
+              <span class="badge" [ngClass]="getBadgeClass(pos.ativo.tipo)">
+                {{ pos.ativo.tipo }}
               </span>
             </td>
+
+            <!-- 3. Quantidade -->
             <td class="text-right font-mono">
-              {{ formatarQuantidade(pos.quantidade_saldo, pos.ativo?.tipo) }}
+              <div>{{ formatarQuantidade(pos.quantidade, pos.ativo.tipo) }}</div>
+              <div
+                class="crypto-custody-sub"
+                *ngIf="pos.ativo.tipo === 'Cripto' && (pos.qtdAutocustodia != null || pos.qtdEarn != null)"
+                title="Custódia detalhada: Autocustódia externa vs Binance Earn"
+              >
+                <span *ngIf="pos.qtdAutocustodia != null && pos.qtdAutocustodia > 0">
+                  🔐 {{ formatarQuantidade(pos.qtdAutocustodia, 'Cripto') }} Autocustódia ({{ pos.pctAutocustodia != null ? pos.pctAutocustodia.toFixed(1) : 0 }}%)
+                </span>
+                <span *ngIf="pos.qtdAutocustodia != null && pos.qtdAutocustodia > 0 && pos.qtdEarn != null && pos.qtdEarn > 0"> • </span>
+                <span *ngIf="pos.qtdEarn != null && pos.qtdEarn > 0">
+                  🟡 {{ formatarQuantidade(pos.qtdEarn, 'Cripto') }} Earn ({{ pos.pctEarn != null ? pos.pctEarn.toFixed(1) : 0 }}%)
+                </span>
+              </div>
             </td>
-            <td class="text-right font-mono highlight-val">
-              {{ formatarMoeda(pos.custo_total_brl) }}
+
+            <!-- 4. PM Contábil -->
+            <td class="text-right font-mono">
+              <div *ngIf="pos.quantidadeSemCusto > 0">
+                <button
+                  type="button"
+                  class="btn-falta-pm"
+                  (click)="abrirModalAjuste(pos)"
+                  [title]="'Falta PM de ' + formatarQuantidade(pos.quantidadeSemCusto, pos.ativo.tipo) + ' ações vindas de transferência. Clique para resolver.'"
+                >
+                  ⚠️ Falta PM de {{ formatarQuantidade(pos.quantidadeSemCusto, pos.ativo.tipo) }} ações ({{ getDataPrimeiroLote(pos) }})
+                </button>
+                <div class="sub-val" *ngIf="pos.pmContabil > 0" title="Preço Médio provisório das compras com preço">
+                  PM parcial: {{ formatarMoeda(pos.pmContabil) }}
+                </div>
+              </div>
+              <div *ngIf="pos.quantidadeSemCusto === 0 && pos.custoPendente">
+                <button
+                  type="button"
+                  class="btn-definir-pm"
+                  (click)="abrirModalAjuste(pos)"
+                  title="Clique para definir o Preço Médio Contábil"
+                >
+                  ⚠️ Definir PM
+                </button>
+              </div>
+              <div *ngIf="!pos.custoPendente && pos.quantidadeSemCusto === 0">
+                <div>{{ formatarMoeda(pos.pmContabil) }}</div>
+                <div class="sub-val" *ngIf="pos.ativo.tipo === 'Cripto' && pos.pmUsd">
+                  {{ formatarUsd(pos.pmUsd) }}
+                </div>
+              </div>
             </td>
-            <td class="text-right font-mono pm-val">{{ formatarPrecoMedio(pos) }}</td>
+
+            <!-- 5. Div. / Ação -->
+            <td class="text-right font-mono">
+              <div>{{ formatarMoeda(pos.dividendoPorAcao) }}</div>
+              <div class="sub-val" title="Total de proventos recebidos">
+                Total: {{ formatarMoeda(pos.proventosTotal) }}
+                <span *ngIf="pos.ativo.tipo === 'Cripto' && pos.earnInterestMoeda"> ({{ formatarQuantidade(pos.earnInterestMoeda, 'Cripto') }} {{ pos.ativo.ticker }})</span>
+              </div>
+            </td>
+
+            <!-- 6. PM Ajustado (c/ Div.) -->
+            <td class="text-right font-mono">
+              <span class="pm-ajustado-pill" title="Preço Médio líquido após amortização dos proventos">
+                {{ formatarMoeda(pos.pmAjustado) }}
+              </span>
+              <div class="sub-val" *ngIf="pos.ativo.tipo === 'Cripto' && pos.pmAjustadoUsd">
+                {{ formatarUsd(pos.pmAjustadoUsd) }}
+              </div>
+            </td>
+
+            <!-- 7. Cotação Atual -->
+            <td class="text-right font-mono">
+              <div class="quote-cell">
+                <span>{{ formatarMoeda(pos.cotacaoAtual) }}</span>
+                <div class="sub-val" *ngIf="pos.ativo.tipo === 'Cripto' && pos.cotacaoUsd">
+                  {{ formatarUsd(pos.cotacaoUsd) }}
+                </div>
+                <span
+                  class="badge-quote"
+                  [ngClass]="getBadgeCotacao(pos).classe"
+                  (click)="abrirModalAjuste(pos)"
+                  title="Clique para ajustar ou definir cotação manual"
+                >
+                  {{ getBadgeCotacao(pos).text }}
+                </span>
+              </div>
+            </td>
+
+            <!-- 8. Custo Aportado -->
+            <td class="text-right font-mono">
+              {{ formatarMoeda(pos.custoTotal) }}
+            </td>
+
+            <!-- 9. Valor Atual -->
+            <td class="text-right font-mono font-bold">
+              <div>{{ formatarMoeda(pos.valorMercado) }}</div>
+              <div class="sub-val font-normal" *ngIf="pos.ativo.tipo === 'Cripto' && (pos.valorMercadoUsd || pos.valorMercadoBtc)">
+                <span *ngIf="pos.valorMercadoBtc">₿ {{ formatarQuantidade(pos.valorMercadoBtc, 'Cripto') }}</span>
+                <span *ngIf="pos.valorMercadoBtc && pos.valorMercadoUsd"> • </span>
+                <span *ngIf="pos.valorMercadoUsd">{{ formatarUsd(pos.valorMercadoUsd) }}</span>
+              </div>
+            </td>
+
+            <!-- 10. Rentab. Cota % -->
+            <td class="text-right font-mono">
+              <div
+                [class.positive-text]="pos.rentabCotaPct >= 0"
+                [class.negative-text]="pos.rentabCotaPct < 0"
+              >
+                {{ formatarPercentual(pos.rentabCotaPct) }}
+              </div>
+              <div
+                class="sub-val"
+                [class.positive-text]="pos.lucroNaoRealizadoBrl >= 0"
+                [class.negative-text]="pos.lucroNaoRealizadoBrl < 0"
+              >
+                {{ formatarMoeda(pos.lucroNaoRealizadoBrl) }}
+              </div>
+            </td>
+
+            <!-- 11. Rentab. Total (c/ Div.) % -->
+            <td class="text-right font-mono">
+              <div
+                class="font-bold"
+                [class.positive-text]="pos.rentabTotalComDivPct >= 0"
+                [class.negative-text]="pos.rentabTotalComDivPct < 0"
+              >
+                {{ formatarPercentual(pos.rentabTotalComDivPct) }}
+              </div>
+              <div
+                class="sub-val"
+                [class.positive-text]="pos.retornoTotalBrl >= 0"
+                [class.negative-text]="pos.retornoTotalBrl < 0"
+              >
+                {{ formatarMoeda(pos.retornoTotalBrl) }}
+              </div>
+            </td>
+
+            <!-- 12. YoC % -->
+            <td class="text-right font-mono">
+              <span class="yoc-text font-bold">
+                {{ formatarPercentual(pos.yocPct, false) }}
+              </span>
+            </td>
+
+            <!-- 13. % Carteira -->
+            <td class="text-right font-mono">
+              <div class="weight-cell">
+                <span>{{ formatarPercentual(pos.pesoCarteiraPct, false) }}</span>
+                <div class="weight-bar-bg">
+                  <div
+                    class="weight-bar-fill"
+                    [style.width.%]="pos.pesoCarteiraPct"
+                  ></div>
+                </div>
+              </div>
+            </td>
+
+            <!-- 14. Ações -->
+            <td class="text-center actions-cell">
+              <button
+                type="button"
+                class="btn-table-action"
+                (click)="abrirModalAjuste(pos)"
+                title="Ajustar PM, Quantidade, Setor ou Converter Ticker"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
+                class="btn-table-action"
+                (click)="abrirModalHistorico(pos)"
+                title="Ver Histórico de Operações e Proventos"
+              >
+                📜
+              </button>
+              <button
+                type="button"
+                class="btn-table-action delete"
+                (click)="confirmarExcluirAtivo(pos)"
+                title="Excluir Ativo da Carteira"
+              >
+                🗑️
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Tabela para Posições Encerradas (Já Vendidas) -->
+    <div class="table-responsive" *ngIf="!store.loading() && posicoesTabela().length > 0 && store.visaoCustodia() === 'ENCERRADAS'">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <!-- 1. Ativo / Ticker -->
+            <th class="sortable" (click)="ordenarPor('ticker')">
+              <div class="th-content">
+                <span>Ativo / Ticker</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'ticker'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 2. Classe -->
+            <th class="sortable" (click)="ordenarPor('tipo')">
+              <div class="th-content">
+                <span>Classe</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'tipo'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 3. Custo Total -->
+            <th class="sortable text-right" (click)="ordenarPor('custoTotal')">
+              <div class="th-content justify-end">
+                <span>Custo Total</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'custoTotal'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 4. Valor Total de Venda -->
+            <th class="sortable text-right" (click)="ordenarPor('valorTotalVendaBrl')">
+              <div class="th-content justify-end">
+                <span>Valor Total Venda</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'valorTotalVendaBrl'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 5. Lucro / Prejuízo Realizado -->
+            <th class="sortable text-right" (click)="ordenarPor('lucroRealizadoBrl')">
+              <div class="th-content justify-end">
+                <span>Lucro/Prej. Realizado</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'lucroRealizadoBrl'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 6. Total de Proventos -->
+            <th class="sortable text-right" (click)="ordenarPor('proventosTotal')">
+              <div class="th-content justify-end">
+                <span>Total Proventos</span>
+                <span class="sort-icon" *ngIf="store.ordenacao().campo === 'proventosTotal'">
+                  {{ store.ordenacao().direcao === 'asc' ? '▲' : '▼' }}
+                </span>
+              </div>
+            </th>
+
+            <!-- 7. Status PM / Ações -->
+            <th class="text-center">Status PM / Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            *ngFor="let pos of posicoesTabela()"
+            [class.row-alerta]="pos.custoPendente"
+            [class.row-updated-flash]="ultimoAtivoAtualizadoId() === pos.ativo.id"
+          >
+            <!-- 1. Ativo / Ticker -->
+            <td class="ticker-cell">
+              <div class="ticker-box">
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                  <span class="ticker-symbol">{{ pos.ativo.ticker }}</span>
+                  <button
+                    *ngIf="pos.codigoRfbIrpf"
+                    type="button"
+                    class="badge-irpf"
+                    (click)="copiarTextoIrpf(pos, $event)"
+                    title="Copiar texto padrão da declaração de Bens e Direitos para o IRPF"
+                  >
+                    📋 IRPF {{ pos.codigoRfbIrpf }}
+                  </button>
+                </div>
+                <span class="ticker-name" [title]="pos.ativo.nome">{{ pos.ativo.nome }}</span>
+                <span class="ticker-setor" *ngIf="pos.ativo.setor">{{ pos.ativo.setor }}</span>
+              </div>
+            </td>
+
+            <!-- 2. Classe -->
+            <td>
+              <span class="badge" [ngClass]="getBadgeClass(pos.ativo.tipo)">
+                {{ pos.ativo.tipo }}
+              </span>
+            </td>
+
+            <!-- 3. Custo Total -->
+            <td class="text-right font-mono">
+              <div>{{ formatarMoeda(pos.custoVendasBrl != null ? pos.custoVendasBrl : pos.custoTotal) }}</div>
+              <div class="sub-val" *ngIf="pos.ativo.tipo === 'Cripto' && pos.quantidadeVendida">
+                Qtd: {{ formatarQuantidade(pos.quantidadeVendida, 'Cripto') }}
+              </div>
+            </td>
+
+            <!-- 4. Valor Total de Venda -->
+            <td class="text-right font-mono font-bold">
+              <div>{{ formatarMoeda(pos.valorTotalVendasBrl != null ? pos.valorTotalVendasBrl : (pos.valorTotalVendaBrl || 0)) }}</div>
+            </td>
+
+            <!-- 5. Lucro / Prejuízo Realizado -->
+            <td class="text-right font-mono">
+              <div
+                class="font-bold"
+                [class.positive-text]="pos.lucroRealizadoBrl >= 0"
+                [class.negative-text]="pos.lucroRealizadoBrl < 0"
+              >
+                {{ formatarMoeda(pos.lucroRealizadoBrl) }}
+              </div>
+              <div
+                class="sub-val"
+                [class.positive-text]="pos.lucroRealizadoBrl >= 0"
+                [class.negative-text]="pos.lucroRealizadoBrl < 0"
+                *ngIf="(pos.custoVendasBrl != null ? pos.custoVendasBrl : pos.custoTotal) > 0"
+              >
+                {{ formatarPercentual((pos.lucroRealizadoBrl / (pos.custoVendasBrl != null ? pos.custoVendasBrl : pos.custoTotal)) * 100) }}
+              </div>
+              <div
+                class="sub-val positive-text font-bold"
+                *ngIf="(pos.custoVendasBrl != null ? pos.custoVendasBrl : pos.custoTotal) === 0 && pos.lucroRealizadoBrl > 0"
+              >
+                +100% (Airdrop)
+              </div>
+            </td>
+
+            <!-- 6. Total de Proventos -->
+            <td class="text-right font-mono">
+              <span class="proventos-text font-bold">{{ formatarMoeda(pos.proventosTotal) }}</span>
+            </td>
+
+            <!-- 7. Status PM / Ações -->
+            <td class="text-center actions-cell">
+              <div *ngIf="pos.quantidadeSemCusto > 0 || pos.custoPendente" style="margin-bottom: 0.35rem;">
+                <button
+                  type="button"
+                  class="btn-falta-pm"
+                  (click)="abrirModalAjuste(pos)"
+                  [title]="'Falta PM de ' + (pos.quantidadeSemCusto > 0 ? formatarQuantidade(pos.quantidadeSemCusto, pos.ativo.tipo) : '') + ' ações. Clique para definir o PM.'"
+                >
+                  <ng-container *ngIf="pos.quantidadeSemCusto > 0; else btnDefinirPm">
+                    ⚠️ Falta PM de {{ formatarQuantidade(pos.quantidadeSemCusto, pos.ativo.tipo) }} ações ({{ getDataPrimeiroLote(pos) }})
+                  </ng-container>
+                  <ng-template #btnDefinirPm>
+                    ⚠️ Definir PM ({{ getDataPrimeiroLote(pos) }})
+                  </ng-template>
+                </button>
+              </div>
+              <div class="actions-buttons-row">
+                <button
+                  type="button"
+                  class="btn-table-action"
+                  (click)="abrirModalAjuste(pos)"
+                  title="Ajustar PM ou Dados do Ativo"
+                >
+                  ✏️
+                </button>
+                <button
+                  type="button"
+                  class="btn-table-action"
+                  (click)="abrirModalHistorico(pos)"
+                  title="Ver Histórico de Operações e Proventos"
+                >
+                  📜
+                </button>
+                <button
+                  type="button"
+                  class="btn-table-action delete"
+                  (click)="confirmarExcluirAtivo(pos)"
+                  title="Excluir Ativo da Carteira"
+                >
+                  🗑️
+                </button>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Modal Nova Carteira -->
-  <div class="modal-overlay" *ngIf="showModalNovaCarteira()" (click)="fecharModalNovaCarteira()">
+  <!-- Modal 1: Ajustar Posição / PM -->
+  <app-ajuste-posicao-modal
+    [isOpen]="modalAjusteAberto()"
+    [posicao]="ativoParaAjuste()"
+    (fechar)="fecharModalAjuste()"
+    (salvo)="onPosicaoSalva($event)"
+  ></app-ajuste-posicao-modal>
+
+  <!-- Modal 2: Histórico de Operações e Proventos -->
+  <app-historico-ativo-modal
+    [isOpen]="modalHistoricoAberto()"
+    [posicao]="ativoParaHistorico()"
+    (fechar)="fecharModalHistorico()"
+    (atualizado)="onPosicaoSalva({ mensagem: 'Histórico de operações atualizado.' })"
+  ></app-historico-ativo-modal>
+
+  <!-- Modal 3: Nova Operação / Lançar Provento -->
+  <app-nova-operacao-modal
+    [isOpen]="modalNovaOperacaoAberto()"
+    [ativosDisponiveis]="ativosDisponiveis()"
+    (fechar)="fecharModalNovaOperacao()"
+    (salvo)="onPosicaoSalva({ mensagem: 'Operação registrada com sucesso.' })"
+  ></app-nova-operacao-modal>
+
+  <!-- Modal Criação de Nova Carteira (com proteção estrita de backdrop) -->
+  <div class="modal-overlay" *ngIf="showModalNovaCarteira()" (click)="$event.stopPropagation()">
     <div class="modal-container" (click)="$event.stopPropagation()">
       <div class="modal-header">
         <h3 class="modal-title">Criar Nova Carteira</h3>
-        <button class="btn-close" (click)="fecharModalNovaCarteira()">&times;</button>
+        <button type="button" class="btn-close" (click)="fecharModalNovaCarteira()">&times;</button>
       </div>
 
       <div class="modal-body">
         <p class="modal-desc">
-          Crie uma nova carteira para separar seus investimentos por estratégia, objetivos ou
-          membros da família.
+          Crie uma nova carteira para separar seus investimentos por estratégia, objetivos ou membros da família.
         </p>
 
         <div *ngIf="erroModalCarteira()" class="alert-box error">
@@ -298,6 +1112,7 @@
 
       <div class="modal-footer">
         <button
+          type="button"
           class="btn-cancel"
           (click)="fecharModalNovaCarteira()"
           [disabled]="salvandoCarteira()"
@@ -305,6 +1120,7 @@
           Cancelar
         </button>
         <button
+          type="button"
           class="btn-save"
           (click)="salvarNovaCarteira()"
           [disabled]="salvandoCarteira() || !novoNomeCarteira.trim()"

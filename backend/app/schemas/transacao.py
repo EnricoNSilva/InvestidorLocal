@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 from app.models.enums import TipoOperacao
+from app.schemas.ativo import AtivoRead
 
 class TransacaoBase(BaseModel):
     carteira_id: Optional[int] = Field(default=1, description="ID da carteira associada")
@@ -27,8 +28,22 @@ class TransacaoBase(BaseModel):
 class TransacaoCreate(TransacaoBase):
     pass
 
+class TransacaoUpdate(BaseModel):
+    carteira_id: Optional[int] = None
+    ativo_id: Optional[int] = None
+    data_hora: Optional[datetime] = None
+    tipo_operacao: Optional[TipoOperacao] = None
+    quantidade: Optional[Decimal] = Field(None, gt=0)
+    preco_unitario: Optional[Decimal] = Field(None, ge=0)
+    taxas: Optional[Decimal] = Field(None, ge=0)
+    moeda: Optional[str] = Field(None, max_length=10)
+    moeda_taxa: Optional[str] = Field(None, max_length=10)
+    ptax_utilizada: Optional[Decimal] = None
+    taxa_contratada: Optional[Decimal] = Field(None, ge=Decimal("-10"), le=Decimal("1000"))
+
 class TransacaoRead(TransacaoBase):
     id: int
     created_at: datetime
+    ativo: Optional[AtivoRead] = None
 
     model_config = ConfigDict(from_attributes=True)

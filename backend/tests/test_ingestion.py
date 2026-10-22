@@ -374,7 +374,10 @@ def test_consolidacao_casos_reais_usuario(client):
     assert "IRBR3" in pos_map
     assert Decimal(str(pos_map["IRBR3"]["quantidade_saldo"])) == Decimal("2400")
     assert Decimal(str(pos_map["IRBR3"]["custo_total_brl"])) == Decimal("3679.0000")
-    assert Decimal(str(pos_map["IRBR3"]["preco_medio_brl"])) == Decimal("1.53291667")
+    # Regra 1.1: Preço Médio provisório sobre quantidade_com_custo (1900): 3679 / 1900 = 1.93631579
+    assert Decimal(str(pos_map["IRBR3"]["preco_medio_brl"])) == Decimal("1.93631579")
+    assert pos_map["IRBR3"]["custo_pendente"] is True
+    assert Decimal(str(pos_map["IRBR3"]["quantidade_sem_custo"])) == Decimal("500")
 
     # VBBR3: normalizado de VBBR3F, 50 unidades
     assert "VBBR3" in pos_map

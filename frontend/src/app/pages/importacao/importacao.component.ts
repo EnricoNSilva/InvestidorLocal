@@ -30,7 +30,7 @@ export class ImportacaoComponent {
   }
 
   // Estado B3 Transferências / Movimentação
-  readonly fileB3Transf = signal<File | null>(null);
+  readonly filesB3Transf = signal<File[]>([]);
   readonly loadingB3Transf = signal<boolean>(false);
   readonly resultadoB3Transf = signal<RetornoImportacao | null>(null);
   readonly erroB3Transf = signal<string | null>(null);
@@ -50,7 +50,7 @@ export class ImportacaoComponent {
   onFileB3TransfSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
-      this.fileB3Transf.set(input.files[0]);
+      this.filesB3Transf.set(Array.from(input.files));
       this.resultadoB3Transf.set(null);
       this.erroB3Transf.set(null);
     }
@@ -74,14 +74,34 @@ export class ImportacaoComponent {
     }
   }
 
+  // Estado Reset Renda Fixa
+  readonly loadingResetRF = signal<boolean>(false);
+  readonly resultadoResetRF = signal<string | null>(null);
+  readonly erroResetRF = signal<string | null>(null);
+  readonly limparRFAntesImportar = signal<boolean>(false);
+
   enviarB3Transferencias(): void {
-    const file = this.fileB3Transf();
-    if (!file) return;
+    const files = this.filesB3Transf();
+    if (!files || files.length === 0) return;
 
     this.loadingB3Transf.set(true);
     this.erroB3Transf.set(null);
 
-    this.carteiraService.uploadB3Transferencias(file).subscribe({
+    if (this.limparRFAntesImportar()) {
+      this.carteiraService.resetarRendaFixa().subscribe({
+        next: () => this.executarEnvioB3Transf(files),
+        error: (err) => {
+          this.erroB3Transf.set('Falha ao resetar Renda Fixa antes da importação: ' + (err.error?.detail || err.message));
+          this.loadingB3Transf.set(false);
+        },
+      });
+    } else {
+      this.executarEnvioB3Transf(files);
+    }
+  }
+
+  private executarEnvioB3Transf(files: File[]): void {
+    this.carteiraService.uploadB3Transferencias(files).subscribe({
       next: (res) => {
         this.resultadoB3Transf.set(res);
         this.loadingB3Transf.set(false);
@@ -91,6 +111,29 @@ export class ImportacaoComponent {
         const detail = err.error?.detail || 'Erro ao processar planilha de movimentações da B3.';
         this.erroB3Transf.set(detail);
         this.loadingB3Transf.set(false);
+      },
+    });
+  }
+
+  resetarRendaFixa(): void {
+    const nomeCarteira = this.carteiraAtiva()?.nome || 'ativa';
+    if (!confirm(`Tem certeza que deseja resetar todas as operações e posições de Renda Fixa da carteira '${nomeCarteira}'? Suas ações, FIIs e criptomoedas permanecerão 100% intactas.`)) {
+      return;
+    }
+    this.loadingResetRF.set(true);
+    this.resultadoResetRF.set(null);
+    this.erroResetRF.set(null);
+
+    this.carteiraService.resetarRendaFixa().subscribe({
+      next: (res) => {
+        this.resultadoResetRF.set(res.mensagem);
+        this.loadingResetRF.set(false);
+      },
+      error: (err) => {
+        console.error('Erro ao resetar Renda Fixa:', err);
+        const detail = err.error?.detail || 'Erro ao resetar Renda Fixa.';
+        this.erroResetRF.set(detail);
+        this.loadingResetRF.set(false);
       },
     });
   }

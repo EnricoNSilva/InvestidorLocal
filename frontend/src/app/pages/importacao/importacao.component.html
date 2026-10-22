@@ -51,12 +51,13 @@
         </p>
       </div>
 
-      <div class="upload-zone" [class.has-file]="fileB3Transf()">
+      <div class="upload-zone" [class.has-file]="filesB3Transf().length > 0">
         <input
           type="file"
           id="inputB3Transf"
           (change)="onFileB3TransfSelected($event)"
           accept=".xlsx, .xls"
+          multiple
           class="file-input"
         />
         <label for="inputB3Transf" class="file-label">
@@ -73,18 +74,51 @@
             <line x1="12" y1="18" x2="12" y2="12"></line>
             <line x1="9" y1="15" x2="15" y2="15"></line>
           </svg>
-          <span *ngIf="!fileB3Transf()" class="label-text"
-            >Selecione o arquivo de movimentação (.xlsx)</span
+          <span *ngIf="filesB3Transf().length === 0" class="label-text"
+            >Selecione uma ou mais planilhas de movimentação (.xlsx)</span
           >
-          <span *ngIf="fileB3Transf()" class="label-selected">{{ fileB3Transf()?.name }}</span>
+          <span *ngIf="filesB3Transf().length === 1" class="label-selected">{{ filesB3Transf()[0].name }}</span>
+          <span *ngIf="filesB3Transf().length > 1" class="label-selected">
+            {{ filesB3Transf().length }} planilhas selecionadas (ordem cronológica)
+          </span>
         </label>
+      </div>
+
+      <div class="options-container" style="margin: 0.75rem 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #475569; cursor: pointer;">
+          <input type="checkbox" [checked]="limparRFAntesImportar()" (change)="limparRFAntesImportar.set(!limparRFAntesImportar())" />
+          <span>Limpar Renda Fixa desta carteira antes de importar</span>
+        </label>
+        <button
+          type="button"
+          class="btn-reset-rf"
+          style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;"
+          (click)="resetarRendaFixa()"
+          [disabled]="loadingResetRF()"
+        >
+          <span *ngIf="loadingResetRF()" class="spinner-inline"></span>
+          <span>{{ loadingResetRF() ? 'Resetando...' : 'Resetar Renda Fixa' }}</span>
+        </button>
+      </div>
+
+      <div *ngIf="resultadoResetRF()" class="feedback-box success" style="margin-top: 0.5rem;">
+        <div>
+          <strong>Sucesso!</strong>
+          <p>{{ resultadoResetRF() }}</p>
+        </div>
+      </div>
+      <div *ngIf="erroResetRF()" class="feedback-box error" style="margin-top: 0.5rem;">
+        <div>
+          <strong>Erro:</strong>
+          <p>{{ erroResetRF() }}</p>
+        </div>
       </div>
 
       <div class="card-actions">
         <button
           class="btn-submit btn-transf"
           (click)="enviarB3Transferencias()"
-          [disabled]="!fileB3Transf() || loadingB3Transf()"
+          [disabled]="filesB3Transf().length === 0 || loadingB3Transf()"
         >
           <span *ngIf="loadingB3Transf()" class="spinner-inline"></span>
           <span>{{
@@ -109,6 +143,12 @@
         <div>
           <strong>Sucesso!</strong>
           <p>{{ resultadoB3Transf()?.mensagem }}</p>
+          <div *ngIf="resultadoB3Transf()?.avisos && resultadoB3Transf()!.avisos!.length > 0" class="avisos-container" style="margin-top: 0.5rem; font-size: 0.85rem;">
+            <div style="font-weight: 600; color: #b45309; margin-bottom: 0.25rem;">⚠️ Observações importantes:</div>
+            <ul style="margin: 0; padding-left: 1.25rem; color: #475569;">
+              <li *ngFor="let av of resultadoB3Transf()!.avisos">{{ av }}</li>
+            </ul>
+          </div>
         </div>
       </div>
 
