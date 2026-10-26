@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal, effect } from '@angular/core';
+import { Injectable, computed, inject, signal, effect, untracked } from '@angular/core';
 import { firstValueFrom, forkJoin, of, catchError } from 'rxjs';
 import { CarteiraService } from '../../../core/services/carteira.service';
 import {
@@ -134,11 +134,16 @@ export class CarteiraStore {
     return 'RV_TOTAL';
   }
 
+  private carregandoEmAndamento: number | null = null;
+  ultimaCarteiraIdCarregada: number | null = null;
+
   constructor() {
     effect(() => {
       const id = this.carteiraService.carteiraAtivaId();
       if (id) {
-        this.carregarDados(id).catch(() => {});
+        untracked(() => {
+          this.carregarDados(id).catch(() => {});
+        });
       }
     });
   }
@@ -747,20 +752,38 @@ export class CarteiraStore {
 
   async carregarDados(carteiraId?: number, forcarCotacoes: boolean = false, silencioso: boolean = false): Promise<void> {
     const id = carteiraId !== undefined ? carteiraId : this.carteiraService.carteiraAtivaId();
+    if (!id) return;
+
+    if (this.carregandoEmAndamento === id && !forcarCotacoes) {
+      return;
+    }
+    this.carregandoEmAndamento = id;
+
     if (!silencioso && this.todasPosicoes().length === 0) {
       this.loading.set(true);
     }
     this.error.set(null);
 
     try {
-      // Se silencioso e já temos cotações válidas, podemos buscar apenas as posições atualizadas
       const cotacoesExistentes = this.cotacoesMap();
       const temCotacoes = Object.keys(cotacoesExistentes).length > 0;
 
-      let posicoes: PosicaoConsolidada[];
-      let cotacoesResp: CotacoesCarteiraResponse | null = null;
-      let provResp: ProventosAnuaisCarteiraResponse | null = null;
+      // 1. Busca sempre as posições consolidadas da carteira
+      const posicoes = await firstValueFrom(this.carteiraService.getPosicoes(id, false));
+      this.todasPosicoes.set(posicoes || []);
 
+      // Se a carteira estiver vazia (sem posições), interrompe sem buscar cotações ou proventos desnecessários
+      if (!posicoes || posicoes.length === 0) {
+        this.cotacoesMap.set({});
+        this.proventosAnuaisAtivos.set([]);
+        this.cotacoesMeta.set({
+          atualizadoEm: new Date().toISOString(),
+          stale: false,
+        });
+        return;
+      }
+
+      // 2. Se a carteira possui ativos, busca proventos e cotações de acordo com a estratégia de cache
       const proventosReq = this.carteiraService.obterProventosAnuais(id, undefined, false).pipe(
         catchError((provErr) => {
           console.warn('Falha ao obter proventos anuais:', provErr);
@@ -768,19 +791,14 @@ export class CarteiraStore {
         }),
       );
 
+      let cotacoesResp: CotacoesCarteiraResponse | null = null;
+      let provResp: ProventosAnuaisCarteiraResponse | null = null;
+
       if (silencioso && temCotacoes && !forcarCotacoes) {
-        const [pos, prov] = await firstValueFrom(
-          forkJoin([
-            this.carteiraService.getPosicoes(id, false),
-            proventosReq,
-          ]),
-        );
-        posicoes = pos;
-        provResp = prov;
+        provResp = await firstValueFrom(proventosReq);
       } else {
-        const [pos, cot, prov] = await firstValueFrom(
+        const [cot, prov] = await firstValueFrom(
           forkJoin([
-            this.carteiraService.getPosicoes(id, false),
             this.carteiraService.obterCotacoes(id, forcarCotacoes).pipe(
               catchError((cotacaoErr) => {
                 console.warn('Falha ao obter cotações, usando fallback offline:', cotacaoErr);
@@ -795,12 +813,10 @@ export class CarteiraStore {
             proventosReq,
           ]),
         );
-        posicoes = pos;
         cotacoesResp = cot;
         provResp = prov;
       }
 
-      this.todasPosicoes.set(posicoes || []);
       if (provResp) {
         this.proventosAnuaisAtivos.set(provResp.ativos || []);
       }
@@ -827,6 +843,8 @@ export class CarteiraStore {
         'Não foi possível carregar as posições e cotações da carteira.';
       this.error.set(msg);
     } finally {
+      this.carregandoEmAndamento = null;
+      this.ultimaCarteiraIdCarregada = id;
       this.loading.set(false);
     }
   }

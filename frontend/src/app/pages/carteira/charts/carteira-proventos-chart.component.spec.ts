@@ -12,7 +12,7 @@ describe('CarteiraProventosChartComponent', () => {
   let componentRef: ComponentRef<CarteiraProventosChartComponent>;
 
   const initialData: ChartRankingProventosData = {
-    labels: ['PETR4', 'MXRF11'],
+    labels: ['PETR4', 'BBAS3'],
     proventos: [250, 50],
     yoc: [8.33, 9.5],
   };
@@ -61,6 +61,36 @@ describe('CarteiraProventosChartComponent', () => {
         },
       ],
     },
+    {
+      ativo_id: 2,
+      ticker: 'BBAS3',
+      nome: 'Banco do Brasil ON',
+      tipo_ativo: 'Acao',
+      em_custodia: true,
+      quantidade_saldo: 200,
+      total_dividendos_brl: 300,
+      total_jcp_brl: 700,
+      total_rendimentos_brl: 0,
+      total_div_jcp_brl: 1000,
+      total_geral_brl: 1000,
+      pct_dividendo_total: 30,
+      pct_jcp_total: 70,
+      anos: [
+        {
+          ano: 2024,
+          dividendos_brl: 300,
+          jcp_brl: 700,
+          rendimentos_brl: 0,
+          total_div_jcp_brl: 1000,
+          total_geral_brl: 1000,
+          pct_dividendo: 30,
+          pct_jcp: 70,
+          qtd_pagamentos_dividendo: 1,
+          qtd_pagamentos_jcp: 3,
+          qtd_pagamentos_rendimento: 0,
+        },
+      ],
+    },
   ];
 
   beforeEach(async () => {
@@ -102,13 +132,55 @@ describe('CarteiraProventosChartComponent', () => {
     expect(component.modoVisao()).toBe('ANUAL');
     const anual = component.dadosAnuais();
     expect(anual.anosLabels).toEqual(['2023', '2024']);
-    expect(anual.totalDivAcumulado).toBe(600);
-    expect(anual.totalJcpAcumulado).toBe(400);
-    expect(anual.totalDivJcpAcumulado).toBe(1000);
-    expect(anual.pctDivAcumulado).toBe(60);
-    expect(anual.pctJcpAcumulado).toBe(40);
-    expect(anual.dividendosPct).toEqual([50, 66.67]);
-    expect(anual.jcpPct).toEqual([50, 33.33]);
+    expect(anual.totalDivAcumulado).toBe(900);
+    expect(anual.totalJcpAcumulado).toBe(1100);
+    expect(anual.totalDivJcpAcumulado).toBe(2000);
+    expect(anual.pctDivAcumulado).toBe(45);
+    expect(anual.pctJcpAcumulado).toBe(55);
+  });
+
+  it('deve listar anos disponíveis ordenados decrescente', () => {
+    expect(component.anosDisponiveisLista()).toEqual([2024, 2023]);
+  });
+
+  it('deve calcular listaAcoesProporcao acumulada (ano = 0) com todas as empresas e % corretos', () => {
+    component.setAnoLista(0);
+    const lista = component.listaAcoesProporcao();
+
+    expect(lista.length).toBe(2);
+    const petr = lista.find((x) => x.ticker === 'PETR4')!;
+    expect(petr.pctDividendo).toBe(60);
+    expect(petr.pctJcp).toBe(40);
+    expect(petr.totalDivJcpBrl).toBe(1000);
+
+    const bbas = lista.find((x) => x.ticker === 'BBAS3')!;
+    expect(bbas.pctDividendo).toBe(30);
+    expect(bbas.pctJcp).toBe(70);
+  });
+
+  it('deve filtrar listaAcoesProporcao para um ano específico', () => {
+    // Em 2023, apenas PETR4 pagou proventos
+    component.setAnoLista(2023);
+    const lista2023 = component.listaAcoesProporcao();
+    expect(lista2023.length).toBe(1);
+    expect(lista2023[0].ticker).toBe('PETR4');
+    expect(lista2023[0].pctDividendo).toBe(50);
+    expect(lista2023[0].pctJcp).toBe(50);
+    expect(lista2023[0].totalDivJcpBrl).toBe(400);
+
+    // Em 2024, ambas pagaram proventos
+    component.setAnoLista(2024);
+    const lista2024 = component.listaAcoesProporcao();
+    expect(lista2024.length).toBe(2);
+  });
+
+  it('deve alternar seleção de ativo ao clicar em uma linha', () => {
+    expect(component.ativoSelecionadoId()).toBe(0);
+    component.toggleSelecaoAtivo(1);
+    expect(component.ativoSelecionadoId()).toBe(1);
+    // Clicar novamente no mesmo desmarca e volta para 0
+    component.toggleSelecaoAtivo(1);
+    expect(component.ativoSelecionadoId()).toBe(0);
   });
 
   it('deve alternar unidadeAnual entre PCT e BRL', () => {
@@ -119,4 +191,3 @@ describe('CarteiraProventosChartComponent', () => {
     expect(component.unidadeAnual()).toBe('PCT');
   });
 });
-

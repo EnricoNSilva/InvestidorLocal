@@ -365,6 +365,37 @@ describe('CarteiraStore', () => {
       expect(store.error()).toBeNull();
       expect(store.cotacoesMeta().stale).toBeTrue();
     });
+
+    it('deve carregar carteira vazia sem disparar chamadas de cotações ou proventos', async () => {
+      mockService.getPosicoes.calls.reset();
+      mockService.obterCotacoes.calls.reset();
+      mockService.obterProventosAnuais.calls.reset();
+
+      mockService.getPosicoes.and.returnValue(of([]));
+
+      await store.carregarDados(99);
+
+      expect(mockService.getPosicoes).toHaveBeenCalledWith(99, false);
+      expect(mockService.obterCotacoes).not.toHaveBeenCalled();
+      expect(mockService.obterProventosAnuais).not.toHaveBeenCalled();
+      expect(store.todasPosicoes().length).toBe(0);
+      expect(Object.keys(store.cotacoesMap()).length).toBe(0);
+      expect(store.proventosAnuaisAtivos().length).toBe(0);
+      expect(store.loading()).toBeFalse();
+      expect(store.error()).toBeNull();
+    });
+
+    it('não deve disparar requisições duplicadas concorrentes para a mesma carteira', async () => {
+      mockService.getPosicoes.calls.reset();
+      mockService.obterCotacoes.calls.reset();
+
+      // Dispara duas chamadas simultâneas
+      const p1 = store.carregarDados(1);
+      const p2 = store.carregarDados(1);
+      await Promise.all([p1, p2]);
+
+      expect(mockService.getPosicoes.calls.count()).toBe(1);
+    });
   });
 
   describe('Cálculos Financeiros e Enriquecimento (posicoesEnriquecidas)', () => {

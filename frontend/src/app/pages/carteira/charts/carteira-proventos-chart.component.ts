@@ -40,6 +40,22 @@ export interface ResumoAnualConsolidado {
   pctJcpAcumulado: number;
 }
 
+export interface ItemAcaoProporcaoAnual {
+  ativo_id: number;
+  ticker: string;
+  nome: string;
+  tipo_ativo: string;
+  dividendosBrl: number;
+  jcpBrl: number;
+  totalDivJcpBrl: number;
+  totalGeralBrl: number;
+  pctDividendo: number;
+  pctJcp: number;
+  qtdPagamentosDiv: number;
+  qtdPagamentosJcp: number;
+  rendimentosBrl: number;
+}
+
 @Component({
   selector: 'app-carteira-proventos-chart',
   standalone: true,
@@ -82,7 +98,7 @@ export interface ResumoAnualConsolidado {
         <!-- Controles exclusivos do modo ANUAL -->
         <div class="anual-controls" *ngIf="modoVisao() === 'ANUAL'">
           <div class="select-container">
-            <label for="selectEmpresa" class="control-label">Empresa em Custódia:</label>
+            <label for="selectEmpresa" class="control-label">Empresa no Gráfico:</label>
             <select
               id="selectEmpresa"
               class="select-control"
@@ -160,6 +176,122 @@ export interface ResumoAnualConsolidado {
           <span class="strip-val font-mono text-muted">
             {{ formatarMoeda(dadosAnuais().totalRendAcumulado) }}
           </span>
+        </div>
+      </div>
+
+      <!-- Lista Detalhada de Ações: Proporção Dividendo vs. JSCP -->
+      <div class="acoes-proporcao-container" *ngIf="modoVisao() === 'ANUAL' && !semDados()">
+        <div class="acoes-proporcao-header">
+          <div class="acoes-header-title">
+            <span class="acoes-title-text">📋 Proporção por Ação</span>
+            <span class="acoes-counter">({{ listaAcoesProporcao().length }} empresas)</span>
+          </div>
+
+          <!-- Filtro de Ano da Lista de Ações -->
+          <div class="anos-pill-group" *ngIf="anosDisponiveisLista().length > 0">
+            <button
+              type="button"
+              class="btn-ano-pill"
+              [class.active]="anoListaSelecionado() === 0"
+              (click)="setAnoLista(0)"
+              title="Ver proporção consolidada histórica"
+            >
+              Todos
+            </button>
+            <button
+              *ngFor="let ano of anosDisponiveisLista()"
+              type="button"
+              class="btn-ano-pill"
+              [class.active]="anoListaSelecionado() === ano"
+              (click)="setAnoLista(ano)"
+              [title]="'Filtrar pagamentos de ' + ano"
+            >
+              {{ ano }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabela Compacta com Rolagem Suave -->
+        <div class="acoes-table-wrap">
+          <table class="acoes-split-table">
+            <thead>
+              <tr>
+                <th class="th-ticker">Ação</th>
+                <th class="th-barra">Div / JSCP</th>
+                <th class="th-num text-green">🟢 % Div</th>
+                <th class="th-num text-blue">🔵 % JSCP</th>
+                <th class="th-total">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                *ngFor="let item of listaAcoesProporcao()"
+                [class.row-selected]="ativoSelecionadoId() === item.ativo_id"
+                (click)="toggleSelecaoAtivo(item.ativo_id)"
+                [title]="'Clique para filtrar o gráfico superior por ' + item.ticker"
+              >
+                <!-- Ticker e Nome -->
+                <td class="td-ticker">
+                  <div class="ticker-box">
+                    <span class="ticker-badge">{{ item.ticker }}</span>
+                    <span class="ticker-mini-name" [title]="item.nome">{{ item.nome }}</span>
+                  </div>
+                </td>
+
+                <!-- Barra Bicolor Proporcional -->
+                <td class="td-barra">
+                  <div class="split-bar-track" *ngIf="item.totalDivJcpBrl > 0; else rendBar">
+                    <div
+                      class="bar-slice slice-green"
+                      [style.width.%]="item.pctDividendo"
+                      [title]="'Dividendo: ' + item.pctDividendo.toFixed(1) + '% (' + formatarMoeda(item.dividendosBrl) + ')'"
+                    ></div>
+                    <div
+                      class="bar-slice slice-blue"
+                      [style.width.%]="item.pctJcp"
+                      [title]="'JSCP: ' + item.pctJcp.toFixed(1) + '% (' + formatarMoeda(item.jcpBrl) + ')'"
+                    ></div>
+                  </div>
+                  <ng-template #rendBar>
+                    <div class="split-bar-track">
+                      <div
+                        class="bar-slice slice-purple"
+                        style="width: 100%"
+                        [title]="'Rendimento: 100% (' + formatarMoeda(item.rendimentosBrl) + ')'"
+                      ></div>
+                    </div>
+                  </ng-template>
+                </td>
+
+                <!-- % Dividendo -->
+                <td class="td-num">
+                  <span class="val-pct text-green font-mono font-bold">{{ item.pctDividendo.toFixed(1) }}%</span>
+                  <span class="val-brl font-mono text-muted" [title]="formatarMoeda(item.dividendosBrl)">
+                    ({{ formatarMoedaAbrev(item.dividendosBrl) }})
+                  </span>
+                </td>
+
+                <!-- % JSCP -->
+                <td class="td-num">
+                  <span class="val-pct text-blue font-mono font-bold">{{ item.pctJcp.toFixed(1) }}%</span>
+                  <span class="val-brl font-mono text-muted" [title]="formatarMoeda(item.jcpBrl)">
+                    ({{ formatarMoedaAbrev(item.jcpBrl) }})
+                  </span>
+                </td>
+
+                <!-- Total R$ -->
+                <td class="td-total font-mono font-bold" [title]="formatarMoeda(item.totalDivJcpBrl > 0 ? item.totalDivJcpBrl : item.totalGeralBrl)">
+                  {{ formatarMoedaAbrev(item.totalDivJcpBrl > 0 ? item.totalDivJcpBrl : item.totalGeralBrl) }}
+                </td>
+              </tr>
+
+              <tr *ngIf="listaAcoesProporcao().length === 0">
+                <td colspan="5" class="empty-list-cell">
+                  Nenhum provento registrado no período selecionado
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -294,8 +426,8 @@ export interface ResumoAnualConsolidado {
     .canvas-container {
       position: relative;
       width: 100%;
-      height: 250px;
-      min-height: 250px;
+      height: 230px;
+      min-height: 230px;
     }
     canvas {
       display: block;
@@ -357,6 +489,171 @@ export interface ResumoAnualConsolidado {
     .font-bold {
       font-weight: 700;
     }
+
+    /* Estilos da Lista de Ações: Proporção Dividendo vs. JSCP */
+    .acoes-proporcao-container {
+      margin-top: 0.85rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .acoes-proporcao-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .acoes-header-title {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .acoes-title-text {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .acoes-counter {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+    .anos-pill-group {
+      display: inline-flex;
+      background: var(--bg-main, #0d1117);
+      padding: 2px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      gap: 2px;
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    .btn-ano-pill {
+      background: transparent;
+      border: none;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      &:hover {
+        color: var(--text-main);
+      }
+      &.active {
+        background: #3b82f6;
+        color: #ffffff;
+      }
+    }
+    .acoes-table-wrap {
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      scrollbar-width: thin;
+    }
+    .acoes-split-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.74rem;
+
+      thead {
+        position: sticky;
+        top: 0;
+        background: var(--bg-card);
+        z-index: 1;
+        border-bottom: 1px solid var(--border-color);
+      }
+      th {
+        text-align: left;
+        padding: 0.35rem 0.5rem;
+        color: var(--text-muted);
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      th.th-num, td.td-num {
+        text-align: right;
+      }
+      th.th-total, td.td-total {
+        text-align: right;
+      }
+      th.th-barra {
+        text-align: center;
+        width: 75px;
+      }
+      td {
+        padding: 0.35rem 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        vertical-align: middle;
+      }
+      tr {
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      tr:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      tr.row-selected {
+        background: rgba(59, 130, 246, 0.14);
+        border-left: 3px solid #3b82f6;
+      }
+    }
+    .ticker-box {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .ticker-badge {
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.76rem;
+    }
+    .ticker-mini-name {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      max-width: 90px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .split-bar-track {
+      display: flex;
+      width: 100%;
+      min-width: 65px;
+      height: 7px;
+      border-radius: 3px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .bar-slice {
+      height: 100%;
+      transition: width 0.3s ease;
+      &.slice-green { background: #10b981; }
+      &.slice-blue { background: #3b82f6; }
+      &.slice-purple { background: #8b5cf6; }
+    }
+    .val-pct {
+      font-size: 0.74rem;
+      display: inline-block;
+      min-width: 40px;
+    }
+    .val-brl {
+      font-size: 0.68rem;
+      margin-left: 0.2rem;
+      opacity: 0.85;
+    }
+    .empty-list-cell {
+      text-align: center;
+      padding: 1rem;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
   `],
 })
 export class CarteiraProventosChartComponent {
@@ -371,8 +668,119 @@ export class CarteiraProventosChartComponent {
   readonly unidadeAnual = signal<'PCT' | 'BRL'>('PCT');
   readonly semDados = signal<boolean>(false);
 
+  // Filtro de ano da lista detalhada (0 = Todos os Anos / Acumulado)
+  readonly anoListaSelecionado = signal<number>(0);
+
   private readonly zone = inject(NgZone);
   private chart?: Chart<'bar'>;
+
+  /**
+   * Lista de anos disponíveis com pagamentos registrados (ordenados decrescente: 2026, 2025, 2024...).
+   */
+  readonly anosDisponiveisLista = computed<number[]>(() => {
+    const lista = this.proventosAnuais();
+    const anosSet = new Set<number>();
+    for (const at of lista) {
+      for (const a of at.anos || []) {
+        if (Number(a.total_div_jcp_brl) > 0 || Number(a.total_geral_brl) > 0) {
+          anosSet.add(a.ano);
+        }
+      }
+    }
+    return Array.from(anosSet).sort((a, b) => b - a);
+  });
+
+  /**
+   * Consolida a lista de todas as ações e sua respectiva proporção de Dividendo vs. JSCP
+   * para o ano selecionado (ou consolidado histórico quando anoListaSelecionado === 0).
+   */
+  readonly listaAcoesProporcao = computed<ItemAcaoProporcaoAnual[]>(() => {
+    const lista = this.proventosAnuais();
+    const anoSel = this.anoListaSelecionado();
+    const resultado: ItemAcaoProporcaoAnual[] = [];
+
+    for (const at of lista) {
+      if (anoSel === 0) {
+        // Acumulado histórico
+        const div = Number(at.total_dividendos_brl) || 0;
+        const jcp = Number(at.total_jcp_brl) || 0;
+        const totalDivJcp = Number(at.total_div_jcp_brl) || (div + jcp);
+        const rend = Number(at.total_rendimentos_brl) || 0;
+        const totalGeral = Number(at.total_geral_brl) || (totalDivJcp + rend);
+
+        if (totalGeral <= 0 && totalDivJcp <= 0) continue;
+
+        let pctDiv = Number(at.pct_dividendo_total) || 0;
+        let pctJcp = Number(at.pct_jcp_total) || 0;
+        if (totalDivJcp > 0 && pctDiv === 0 && pctJcp === 0) {
+          pctDiv = Number(((div / totalDivJcp) * 100).toFixed(2));
+          pctJcp = Number((100 - pctDiv).toFixed(2));
+        }
+
+        const qtdDiv = (at.anos || []).reduce((acc, a) => acc + (a.qtd_pagamentos_dividendo || 0), 0);
+        const qtdJcp = (at.anos || []).reduce((acc, a) => acc + (a.qtd_pagamentos_jcp || 0), 0);
+
+        resultado.push({
+          ativo_id: at.ativo_id,
+          ticker: at.ticker,
+          nome: at.nome,
+          tipo_ativo: at.tipo_ativo,
+          dividendosBrl: div,
+          jcpBrl: jcp,
+          totalDivJcpBrl: totalDivJcp,
+          totalGeralBrl: totalGeral,
+          pctDividendo: pctDiv,
+          pctJcp: pctJcp,
+          qtdPagamentosDiv: qtdDiv,
+          qtdPagamentosJcp: qtdJcp,
+          rendimentosBrl: rend,
+        });
+      } else {
+        // Ano específico selecionado
+        const anoItem = (at.anos || []).find((a) => a.ano === anoSel);
+        if (!anoItem) continue;
+
+        const div = Number(anoItem.dividendos_brl) || 0;
+        const jcp = Number(anoItem.jcp_brl) || 0;
+        const totalDivJcp = Number(anoItem.total_div_jcp_brl) || (div + jcp);
+        const rend = Number(anoItem.rendimentos_brl) || 0;
+        const totalGeral = Number(anoItem.total_geral_brl) || (totalDivJcp + rend);
+
+        if (totalGeral <= 0 && totalDivJcp <= 0) continue;
+
+        let pctDiv = Number(anoItem.pct_dividendo) || 0;
+        let pctJcp = Number(anoItem.pct_jcp) || 0;
+        if (totalDivJcp > 0 && pctDiv === 0 && pctJcp === 0) {
+          pctDiv = Number(((div / totalDivJcp) * 100).toFixed(2));
+          pctJcp = Number((100 - pctDiv).toFixed(2));
+        }
+
+        resultado.push({
+          ativo_id: at.ativo_id,
+          ticker: at.ticker,
+          nome: at.nome,
+          tipo_ativo: at.tipo_ativo,
+          dividendosBrl: div,
+          jcpBrl: jcp,
+          totalDivJcpBrl: totalDivJcp,
+          totalGeralBrl: totalGeral,
+          pctDividendo: pctDiv,
+          pctJcp: pctJcp,
+          qtdPagamentosDiv: anoItem.qtd_pagamentos_dividendo || 0,
+          qtdPagamentosJcp: anoItem.qtd_pagamentos_jcp || 0,
+          rendimentosBrl: rend,
+        });
+      }
+    }
+
+    // Ordena pelo maior volume de Proventos (Div + JCP), depois total geral e ticker
+    return resultado.sort(
+      (a, b) =>
+        b.totalDivJcpBrl - a.totalDivJcpBrl ||
+        b.totalGeralBrl - a.totalGeralBrl ||
+        a.ticker.localeCompare(b.ticker)
+    );
+  });
 
   /**
    * Consolida dados anuais da empresa selecionada (ou de todas em custódia).
@@ -479,31 +887,39 @@ export class CarteiraProventosChartComponent {
     registerCharts();
 
     afterNextRender(() => {
-      this.reconstruirGrafico();
+      const cv = this.canvas()?.nativeElement;
+      if (cv && !this.chart) {
+        this.zone.runOutsideAngular(() => {
+          this.chart = new Chart(cv, this.buildConfig());
+        });
+      }
     });
 
     effect(() => {
-      // Reativo às mudanças de modo, ativo selecionado, unidade e dados
-      const lista = this.proventosAnuais();
-      const selId = Number(this.ativoSelecionadoId()) || 0;
-      if (selId !== 0 && lista.length > 0 && !lista.some((a) => a.ativo_id === selId)) {
-        this.ativoSelecionadoId.set(0);
-      }
-
       const modo = this.modoVisao();
       const ranking = this.data();
       const anual = this.dadosAnuais();
-      const unidade = this.unidadeAnual();
+      const c = this.chart;
 
       if (modo === 'RANKING') {
-        const hasValues = ranking.proventos.length > 0 && ranking.proventos.some((v) => v > 0);
+        const hasValues = ranking.proventos.length > 0 && ranking.proventos.some((v: number) => v > 0);
         this.semDados.set(!hasValues);
       } else {
-        const hasValues = anual.anosLabels.length > 0 && anual.totalGeralValores.some((v) => v > 0);
+        const hasValues =
+          anual.anosLabels.length > 0 &&
+          (anual.totalDivJcpAcumulado > 0 || anual.totalRendAcumulado > 0);
         this.semDados.set(!hasValues);
       }
 
-      this.reconstruirGrafico();
+      if (!c) return;
+
+      this.zone.runOutsideAngular(() => {
+        c.destroy();
+        const cv = this.canvas()?.nativeElement;
+        if (cv) {
+          this.chart = new Chart(cv, this.buildConfig());
+        }
+      });
     });
 
     inject(DestroyRef).onDestroy(() => {
@@ -516,49 +932,59 @@ export class CarteiraProventosChartComponent {
     this.modoVisao.set(modo);
   }
 
-  setAtivoSelecionado(ativoId: number | string): void {
-    this.ativoSelecionadoId.set(Number(ativoId) || 0);
+  setAtivoSelecionado(id: string | number): void {
+    this.ativoSelecionadoId.set(Number(id) || 0);
+  }
+
+  toggleSelecaoAtivo(ativoId: number): void {
+    if (this.ativoSelecionadoId() === ativoId) {
+      this.ativoSelecionadoId.set(0);
+    } else {
+      this.ativoSelecionadoId.set(ativoId);
+    }
   }
 
   setUnidadeAnual(unidade: 'PCT' | 'BRL'): void {
     this.unidadeAnual.set(unidade);
   }
 
-  formatarMoeda(val: number): string {
-    return `R$ ${val.toLocaleString('pt-BR', {
+  setAnoLista(ano: number): void {
+    this.anoListaSelecionado.set(ano);
+  }
+
+  formatarMoeda(valor: number): string {
+    return `R$ ${valor.toLocaleString('pt-BR', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
   }
 
-  private reconstruirGrafico(): void {
-    const cv = this.canvas()?.nativeElement;
-    if (!cv) return;
-
-    if (this.chart) {
-      this.chart.destroy();
-      this.chart = undefined;
+  formatarMoedaAbrev(val: number): string {
+    if (!val || val === 0) return 'R$ 0';
+    const abs = Math.abs(val);
+    if (abs >= 1000000) {
+      return `R$ ${(val / 1000000).toFixed(1).replace('.', ',')}M`;
     }
-
-    this.zone.runOutsideAngular(() => {
-      this.chart = new Chart(cv, this.buildConfig());
-    });
+    if (abs >= 1000) {
+      return `R$ ${(val / 1000).toFixed(1).replace('.', ',')}k`;
+    }
+    return `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   }
 
   private buildConfig(): ChartConfiguration<'bar'> {
-    const theme = chartTheme();
     const modo = this.modoVisao();
+    const theme = chartTheme();
 
     if (modo === 'RANKING') {
-      const d = this.data();
+      const ranking = this.data();
       return {
         type: 'bar',
         data: {
-          labels: d.labels,
+          labels: ranking.labels,
           datasets: [
             {
-              label: 'Proventos (R$)',
-              data: d.proventos,
+              label: 'Total Recebido (R$)',
+              data: ranking.proventos,
               backgroundColor: '#10b981',
               hoverBackgroundColor: '#34d399',
               borderRadius: 4,
@@ -566,7 +992,7 @@ export class CarteiraProventosChartComponent {
             },
             {
               label: 'Yield on Cost (%)',
-              data: d.yoc,
+              data: ranking.yoc,
               backgroundColor: '#8b5cf6',
               hoverBackgroundColor: '#a78bfa',
               borderRadius: 4,
@@ -582,7 +1008,7 @@ export class CarteiraProventosChartComponent {
               position: 'top',
               labels: {
                 color: theme.textSecondary,
-                font: { size: 11 },
+                font: { size: 11, weight: 'bold' },
                 boxWidth: 12,
                 boxHeight: 12,
               },
@@ -592,10 +1018,9 @@ export class CarteiraProventosChartComponent {
                 label: (ctx) => {
                   const val = Number(ctx.parsed.y) || 0;
                   if (ctx.datasetIndex === 0) {
-                    return ` Proventos: ${this.formatarMoeda(val)}`;
-                  } else {
-                    return ` YoC: ${val.toFixed(2)}%`;
+                    return ` Total Recebido: ${this.formatarMoeda(val)}`;
                   }
+                  return ` Yield on Cost: ${val.toFixed(2)}%`;
                 },
               },
             },
@@ -684,6 +1109,20 @@ export class CarteiraProventosChartComponent {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        onClick: (_event, elements) => {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            const anoStr = anual.anosLabels[idx];
+            if (anoStr) {
+              const anoNum = Number(anoStr);
+              if (anoNum) {
+                this.zone.run(() => {
+                  this.setAnoLista(this.anoListaSelecionado() === anoNum ? 0 : anoNum);
+                });
+              }
+            }
+          }
+        },
         plugins: {
           legend: {
             position: 'top',
@@ -721,6 +1160,7 @@ export class CarteiraProventosChartComponent {
                 if (rend > 0) {
                   linhas.push(` ℹ️ Aluguel BTC / Rend.: ${this.formatarMoeda(rend)}`);
                 }
+                linhas.push(' (Clique na coluna para filtrar a lista abaixo)');
                 return linhas;
               },
             },
