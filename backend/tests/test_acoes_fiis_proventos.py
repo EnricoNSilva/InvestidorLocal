@@ -2244,6 +2244,223 @@ def test_calcular_proventos_anuais_carteira_e_endpoint(db_session: Session):
     assert len(data["ativos"][0]["anos"]) == 2
 
 
+def test_ingestao_b3_planilha_quantidade_zero(db_session):
+    db = db_session
+    """
+    Testa a resiliência do parser de movimentação B3 contra linhas com quantidade 0 ou <= 0.
+    Cenários da B3:
+      - Linha de compra/liquidação com quantidade 0 (cancelamento/resíduo)
+      - Linha de fração em ativos com quantidade 0
+      - Linha de provento em dinheiro sem quantidade de cotas associada (quantidade=0, valor=150.0)
+      - Linha de compra normal com quantidade > 0
+      - Linha informativa com quantidade 0 e valor 0
+    O parser não deve quebrar com ValidationError em TransacaoCreate e deve retornar sucesso.
+    """
+    import io
+    import pandas as pd
+    from app.services.ingestion.parser_movimentacao_b3 import processar_planilha_movimentacao_b3
+
+    data = [
+        # 1. Compra normal legítima
+        {
+            "Data": "2024-01-10",
+            "Movimentação": "Transferência - Liquidação",
+            "Entrada/Saída": "Credito",
+            "Produto": "VALE3 - VALE S.A.",
+            "Quantidade": 100,
+            "Preço unitário": 70.0,
+            "Valor da Operação": 7000.0,
+        },
+        # 2. Linha com quantidade = 0 e movimentação de compra/liquidação (deve ser ignorada sem erro)
+        {
+            "Data": "2024-01-15",
+            "Movimentação": "Transferência - Liquidação",
+            "Entrada/Saída": "Credito",
+            "Produto": "VALE3 - VALE S.A.",
+            "Quantidade": 0,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 0.0,
+        },
+        # 3. Linha com quantidade = 0 em Fração em Ativos (deve ser ignorada sem erro)
+        {
+            "Data": "2024-02-01",
+            "Movimentação": "Fração em Ativos",
+            "Entrada/Saída": "Debito",
+            "Produto": "VALE3 - VALE S.A.",
+            "Quantidade": 0,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 0.0,
+        },
+        # 4. Provento em dinheiro sem quantidade informada (quantidade=0, valor=250.0)
+        # Deve processar com quantidade=1.0 e preco=250.0
+        {
+            "Data": "2024-02-15",
+            "Movimentação": "Dividendo",
+            "Entrada/Saída": "Credito",
+            "Produto": "VALE3 - VALE S.A.",
+            "Quantidade": 0,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 250.0,
+        },
+        # 5. Outra linha informativa com quantidade 0 ("Compra" com quantidade 0)
+        {
+            "Data": "2024-03-01",
+            "Movimentação": "Compra",
+            "Entrada/Saída": "Credito",
+            "Produto": "PETR4 - PETROLEO BRASILEIRO",
+            "Quantidade": 0,
+            "Preço unitário": 35.0,
+            "Valor da Operação": 0.0,
+        },
+    ]
+
+    df = pd.DataFrame(data)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+    bytes_excel = buf.getvalue()
+
+    # Processa planilha - não deve levantar ValidationError nem exceção
+    resultado = processar_planilha_movimentacao_b3(db=db, file_content=bytes_excel, carteira_id=1)
+    transacoes = resultado["transacoes"]
+
+    # Deve conter a compra de VALE3 (100 cotas) e o Dividendo de R$ 250,00
+    assert len(transacoes) == 2
+    tickers_tx = [t.ativo.ticker for t in transacoes]
+    assert "VALE3" in tickers_tx
+
+    tipos_tx = [t.tipo_operacao for t in transacoes]
+    assert TipoOperacao.BUY in tipos_tx
+    assert TipoOperacao.DIVIDENDO in tipos_tx
+
+    for t in transacoes:
+        assert t.quantidade > 0
+        assert t.preco_unitario >= 0
+
+    # Verifica posição consolidada de VALE3
+    pos_vale = (
+        db.query(PosicaoConsolidada)
+        .join(Ativo)
+        .filter(PosicaoConsolidada.carteira_id == 1, Ativo.ticker == "VALE3")
+        .first()
+    )
+    assert pos_vale is not None
+    assert pos_vale.quantidade_saldo == Decimal("100")
+    assert pos_vale.proventos_acumulados_brl == Decimal("250.00")
+
+
+def test_endpoint_upload_b3_transferencias_com_quantidade_zero(client):
+    """
+    Testa que o endpoint POST /api/v1/importacao/b3-transferencias não quebra com 400
+    ao receber planilhas contendo linhas com quantidade 0.
+    """
+    import io
+    import pandas as pd
+
+    data = [
+        {
+            "Data": "2024-05-10",
+            "Movimentação": "Transferência - Liquidação",
+            "Entrada/Saída": "Credito",
+            "Produto": "ITUB4 - ITAU UNIBANCO",
+            "Quantidade": 0,
+            "Preço unitário": 0.0,
+            "Valor da Operação": 0.0,
+        },
+        {
+            "Data": "2024-05-11",
+            "Movimentação": "Transferência - Liquidação",
+            "Entrada/Saída": "Credito",
+            "Produto": "ITUB4 - ITAU UNIBANCO",
+            "Quantidade": 50,
+            "Preço unitário": 30.0,
+            "Valor da Operação": 1500.0,
+        },
+    ]
+
+    df = pd.DataFrame(data)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+    buf.seek(0)
+
+    files = {"files": ("movimentacao_zero.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    response = client.post("/api/v1/importacao/b3-transferencias?carteira_id=1", files=files)
+
+    assert response.status_code == 200, f"Falha no upload: {response.text}"
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["transferencias_processadas"] >= 1
+
+
+def test_ingestao_b3_planilha_quantidade_negativa_e_corrompida(db_session):
+    """
+    Testa que planilhas com quantidades negativas, strings 'N/A', '-' ou preços negativos
+    são tratadas defensivamente e não quebram o parser com exceção.
+    """
+    import io
+    import pandas as pd
+    from app.services.ingestion.parser_movimentacao_b3 import processar_planilha_movimentacao_b3
+
+    data = [
+        # Linha normal de compra
+        {
+            "Data": "2024-06-01",
+            "Movimentação": "Transferência - Liquidação",
+            "Entrada/Saída": "Credito",
+            "Produto": "BBAS3 - BANCO DO BRASIL",
+            "Quantidade": 100,
+            "Preço unitário": 27.50,
+            "Valor da Operação": 2750.0,
+        },
+        # Linha com quantidade negativa (estorno/cancelamento)
+        {
+            "Data": "2024-06-02",
+            "Movimentação": "Transferência - Liquidação",
+            "Entrada/Saída": "Debito",
+            "Produto": "BBAS3 - BANCO DO BRASIL",
+            "Quantidade": -50,
+            "Preço unitário": 27.50,
+            "Valor da Operação": -1375.0,
+        },
+        # Linha com string '-' na quantidade
+        {
+            "Data": "2024-06-03",
+            "Movimentação": "Atualização",
+            "Entrada/Saída": "Credito",
+            "Produto": "BBAS3 - BANCO DO BRASIL",
+            "Quantidade": "-",
+            "Preço unitário": "-",
+            "Valor da Operação": "-",
+        },
+        # Linha com preço negativo e quantidade 0
+        {
+            "Data": "2024-06-04",
+            "Movimentação": "Fração em Ativos",
+            "Entrada/Saída": "Debito",
+            "Produto": "BBAS3 - BANCO DO BRASIL",
+            "Quantidade": 0,
+            "Preço unitário": -10.0,
+            "Valor da Operação": 0.0,
+        },
+    ]
+
+    df = pd.DataFrame(data)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+    bytes_excel = buf.getvalue()
+
+    resultado = processar_planilha_movimentacao_b3(db=db_session, file_content=bytes_excel, carteira_id=1)
+    transacoes = resultado["transacoes"]
+    assert len(transacoes) == 1
+    assert transacoes[0].ativo.ticker == "BBAS3"
+    assert transacoes[0].quantidade == Decimal("100")
+
+
+
+
+
 
 
 

@@ -234,6 +234,10 @@ def processar_planilha_movimentacao_b3(
 
     # Processamento sequencial
     for linha in linhas:
+        quantidade = ZERO
+        preco_unitario = ZERO
+        tipo_operacao = None
+
         # Se apenas_renda_fixa estiver ativo, ignora qualquer ativo que não seja Renda Fixa
         if apenas_renda_fixa and not linha.info_rf:
             continue
@@ -536,13 +540,18 @@ def processar_planilha_movimentacao_b3(
             if nome_ativo is None:
                 nome_ativo = f"Ativo B3 {ticker}"
 
-            # Regra 2.2: Transferência - Liquidação vs. Empréstimo BTC
-            eh_liquidacao = "liquidacao" in linha.norm_mov or "transferencia - liquidacao" in linha.norm_mov
+            # Regra 2.2: Transferência - Liquidação vs. Empréstimo BTC / Compras e Vendas
+            eh_liquidacao = (
+                "liquidacao" in linha.norm_mov
+                or "transferencia - liquidacao" in linha.norm_mov
+                or "compra" in linha.norm_mov
+                or "venda" in linha.norm_mov
+            )
 
             if tipo_operacao is not None:
                 pass
             elif eh_liquidacao:
-                if "entrada_saida" not in col_map:
+                if "entrada_saida" not in col_map and "compra" not in linha.norm_mov and "venda" not in linha.norm_mov:
                     continue
 
                 p_calc = linha.preco_unitario
@@ -551,6 +560,19 @@ def processar_planilha_movimentacao_b3(
                     v_calc = p_calc * linha.quantidade
                 elif v_calc > ZERO and p_calc == ZERO and linha.quantidade > ZERO:
                     p_calc = v_calc / linha.quantidade
+                elif linha.quantidade <= ZERO and v_calc > ZERO and p_calc > ZERO:
+                    linha.quantidade = (v_calc / p_calc).quantize(Decimal("1.00000000"))
+
+                # Se a quantidade for <= 0 após todas as tentativas, ignora defensivamente a linha
+                if linha.quantidade <= ZERO:
+                    continue
+
+                # Determina sentido caso não haja coluna explícita
+                sentido_op = linha.sentido
+                if "venda" in linha.norm_mov and "compra" not in linha.norm_mov:
+                    sentido_op = "debito"
+                elif "compra" in linha.norm_mov and "venda" not in linha.norm_mov:
+                    sentido_op = "credito"
 
                 # Uma linha Transferência - Liquidação é Empréstimo BTC SE E SOMENTE SE:
                 # 1. preco_unitario == 0 (ou valor_operacao == 0), OU
@@ -566,8 +588,8 @@ def processar_planilha_movimentacao_b3(
                     continue
 
                 # Caso nenhuma das 3 condições ocorra e preco_unitario > 0, é compra ou venda real
-                if p_calc > ZERO:
-                    if linha.sentido == "debito":
+                if p_calc > ZERO and linha.quantidade > ZERO:
+                    if sentido_op == "debito":
                         tipo_operacao = TipoOperacao.SELL
                         quantidade = linha.quantidade
                         preco_unitario = p_calc
@@ -703,7 +725,7 @@ def processar_planilha_movimentacao_b3(
                 if (quantidade * preco_unitario) <= ZERO:
                     continue
 
-            if quantidade <= ZERO and tipo_operacao not in (TipoOperacao.FRACAO_ATIVOS,):
+            if quantidade <= ZERO:
                 continue
 
         # Garante a existência do ativo
@@ -830,25 +852,34 @@ def processar_planilha_movimentacao_b3(
         if eh_duplicado:
             continue
 
-        transacao_in = TransacaoCreate(
-            carteira_id=carteira_id or 1,
-            ativo_id=ativo.id,
-            data_hora=linha.data_hora,
-            tipo_operacao=tipo_operacao,
-            quantidade=quantidade,
-            preco_unitario=preco_unitario,
-            taxas=Decimal("0.0"),
-            moeda="BRL",
-            taxa_contratada=None,
-        )
+        if tipo_operacao is None or quantidade is None or not isinstance(quantidade, Decimal) or quantidade.is_nan() or quantidade <= ZERO:
+            if ticker and ticker != "NAN":
+                avisos.append(
+                    f"Linha ignorada para o ativo {ticker} ({tipo_operacao.value if tipo_operacao else 'N/A'}): quantidade inválida ou zerada ({quantidade})."
+                )
+            continue
+
+        if preco_unitario is None or not isinstance(preco_unitario, Decimal) or preco_unitario.is_nan() or preco_unitario < ZERO:
+            preco_unitario = ZERO
 
         try:
+            transacao_in = TransacaoCreate(
+                carteira_id=carteira_id or 1,
+                ativo_id=ativo.id,
+                data_hora=linha.data_hora,
+                tipo_operacao=tipo_operacao,
+                quantidade=quantidade,
+                preco_unitario=preco_unitario,
+                taxas=Decimal("0.0"),
+                moeda="BRL",
+                taxa_contratada=None,
+            )
             tx = processar_transacao(db=db, transacao_in=transacao_in)
             transacoes_criadas.append(tx)
             transacoes_criadas_ids.add(tx.id)
-        except PortfolioError as p_err:
+        except (PortfolioError, Exception) as p_err:
             avisos.append(
-                f"Aviso ao processar {tipo_operacao.value} de {quantidade} {ticker}: {str(p_err)}"
+                f"Aviso ao processar {tipo_operacao.value if tipo_operacao else 'N/A'} de {quantidade} {ticker}: {str(p_err)}"
             )
 
     # Reavalia e consolida todas as posições da carteira de forma idempotente

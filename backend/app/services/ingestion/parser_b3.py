@@ -40,13 +40,22 @@ def to_decimal(val) -> Decimal:
         elif "," in cleaned:
             cleaned = cleaned.replace(",", ".")
         try:
-            return Decimal(cleaned)
+            d = Decimal(cleaned)
+            if d.is_nan() or d.is_infinite():
+                return Decimal("0.0")
+            return d
         except Exception:
             return Decimal("0.0")
     if isinstance(val, float):
+        import math
+        if math.isnan(val) or math.isinf(val):
+            return Decimal("0.0")
         return Decimal(f"{val:.8f}".rstrip("0").rstrip(".") if "." in f"{val:.8f}" else f"{val:.8f}")
     try:
-        return Decimal(str(val))
+        d = Decimal(str(val))
+        if d.is_nan() or d.is_infinite():
+            return Decimal("0.0")
+        return d
     except Exception:
         return Decimal("0.0")
 
@@ -202,26 +211,30 @@ def processar_planilha_b3(
         elif hasattr(data_hora, "to_pydatetime"):
             data_hora = data_hora.to_pydatetime()
 
-        transacao_in = TransacaoCreate(
-            carteira_id=carteira_id or 1,
-            ativo_id=ativo.id,
-            data_hora=data_hora,
-            tipo_operacao=tipo_operacao,
-            quantidade=quantidade,
-            preco_unitario=preco_unitario,
-            taxas=taxas,
-            moeda="BRL",
-            moeda_taxa="BRL",
-            ptax_utilizada=None
-        )
-
         try:
+            transacao_in = TransacaoCreate(
+                carteira_id=carteira_id or 1,
+                ativo_id=ativo.id,
+                data_hora=data_hora,
+                tipo_operacao=tipo_operacao,
+                quantidade=quantidade,
+                preco_unitario=preco_unitario,
+                taxas=taxas,
+                moeda="BRL",
+                moeda_taxa="BRL",
+                ptax_utilizada=None,
+            )
             tx = processar_transacao(db=db, transacao_in=transacao_in)
             transacoes_criadas.append(tx)
         except PortfolioError as p_err:
             db.rollback()
             pendencias.append(
                 f"Operação {tipo_operacao.value} de {quantidade} {ticker} em {data_hora.strftime('%d/%m/%Y')}: {str(p_err)}"
+            )
+        except Exception as exc:
+            db.rollback()
+            pendencias.append(
+                f"Aviso ao registrar {tipo_operacao.value if tipo_operacao else 'N/A'} de {quantidade} {ticker}: {str(exc)}"
             )
 
     recalcular_posicoes_carteira(db=db, carteira_id=carteira_id or 1)
