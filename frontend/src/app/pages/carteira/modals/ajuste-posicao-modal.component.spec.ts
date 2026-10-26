@@ -67,6 +67,7 @@ describe('AjustePosicaoModalComponent', () => {
       'getPosicoes',
       'obterCotacoes',
       'obterCotacaoHistorica',
+      'obterProventosAnuais',
     ]);
     spyService.carteiraAtivaId = jasmine.createSpy('carteiraAtivaId').and.returnValue(1);
     spyService.ajustarPosicaoManual.and.returnValue(of(fakePosicao.posicao));
@@ -78,6 +79,7 @@ describe('AjustePosicaoModalComponent', () => {
     spyService.obterCotacoes.and.returnValue(
       of({ carteira_id: 1, atualizado_em: '', stale: false, cotacoes: {} }),
     );
+    spyService.obterProventosAnuais.and.returnValue(of({ carteira_id: 1, ativos: [] }));
 
     await TestBed.configureTestingModule({
       imports: [AjustePosicaoModalComponent],

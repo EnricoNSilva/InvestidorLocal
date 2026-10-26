@@ -2069,6 +2069,182 @@ def test_parser_movimentacao_portfolio_error_resiliencia(db_session: Session, mo
     assert "Simulação de erro" in resultado["avisos"][0]
 
 
+def test_calcular_proventos_anuais_carteira_e_endpoint(db_session: Session):
+    """
+    Testa o cálculo ano a ano da proporção % e valores R$ de Dividendos vs. JSCP,
+    garantindo que aluguel BTC (RENDIMENTO) não distorce a base 100% de (Div + JCP)
+    e que o filtro somente_em_custodia funciona perfeitamente.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.services.portfolio import calcular_proventos_anuais_carteira
+
+    db = db_session
+    # Cria carteira isolada
+    carteira = Carteira(nome="Carteira Teste Proventos Anuais")
+    db.add(carteira)
+    db.flush()
+
+    ativo_ativo = Ativo(ticker="TEST_DIV3", nome="Empresa Pagadora Ativa", tipo=TipoAtivo.Acao, setor="Energia")
+    ativo_encerrado = Ativo(ticker="TEST_ENC3", nome="Empresa Já Vendida", tipo=TipoAtivo.Acao, setor="Varejo")
+    db.add_all([ativo_ativo, ativo_encerrado])
+    db.flush()
+
+    # Transações ativo_ativo: BUY em 2023
+    tx_buy = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_ativo.id,
+        data_hora=datetime(2023, 1, 10, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.BUY,
+        quantidade=Decimal("100"),
+        preco_unitario=Decimal("20.00"),
+    )
+    # 2023: Div 100 + JCP 50 + Aluguel BTC 10
+    tx_div23 = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_ativo.id,
+        data_hora=datetime(2023, 6, 15, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.DIVIDENDO,
+        quantidade=Decimal("100"),
+        preco_unitario=Decimal("1.00"),
+    )
+    tx_jcp23 = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_ativo.id,
+        data_hora=datetime(2023, 12, 20, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.JCP,
+        quantidade=Decimal("100"),
+        preco_unitario=Decimal("0.50"),
+    )
+    tx_rend23 = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_ativo.id,
+        data_hora=datetime(2023, 7, 5, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.RENDIMENTO,
+        quantidade=Decimal("100"),
+        preco_unitario=Decimal("0.10"),
+    )
+    # 2024: Div 80 + JCP 120
+    tx_div24 = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_ativo.id,
+        data_hora=datetime(2024, 4, 15, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.DIVIDENDO,
+        quantidade=Decimal("100"),
+        preco_unitario=Decimal("0.80"),
+    )
+    tx_jcp24 = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_ativo.id,
+        data_hora=datetime(2024, 10, 10, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.JCP,
+        quantidade=Decimal("100"),
+        preco_unitario=Decimal("1.20"),
+    )
+
+    # Transações ativo_encerrado: BUY, DIVIDENDO, SELL total
+    tx_enc_buy = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_encerrado.id,
+        data_hora=datetime(2022, 2, 1, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.BUY,
+        quantidade=Decimal("50"),
+        preco_unitario=Decimal("10.00"),
+    )
+    tx_enc_div = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_encerrado.id,
+        data_hora=datetime(2022, 5, 20, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.DIVIDENDO,
+        quantidade=Decimal("50"),
+        preco_unitario=Decimal("0.50"),
+    )
+    tx_enc_sell = Transacao(
+        carteira_id=carteira.id,
+        ativo_id=ativo_encerrado.id,
+        data_hora=datetime(2022, 8, 10, tzinfo=timezone.utc),
+        tipo_operacao=TipoOperacao.SELL,
+        quantidade=Decimal("50"),
+        preco_unitario=Decimal("12.00"),
+    )
+
+    db.add_all([
+        tx_buy, tx_div23, tx_jcp23, tx_rend23, tx_div24, tx_jcp24,
+        tx_enc_buy, tx_enc_div, tx_enc_sell
+    ])
+    db.commit()
+
+    recalcular_posicoes_carteira(db=db, carteira_id=carteira.id)
+
+    # 1. Consulta todos (ativas e encerradas)
+    resp = calcular_proventos_anuais_carteira(db=db, carteira_id=carteira.id, somente_em_custodia=False)
+    assert resp.carteira_id == carteira.id
+    assert len(resp.ativos) == 2
+
+    # Verifica TEST_DIV3
+    div3 = next(a for a in resp.ativos if a.ticker == "TEST_DIV3")
+    assert div3.em_custodia is True
+    assert div3.quantidade_saldo == Decimal("100")
+    assert div3.total_dividendos_brl == Decimal("180.00")
+    assert div3.total_jcp_brl == Decimal("170.00")
+    assert div3.total_rendimentos_brl == Decimal("10.00")
+    assert div3.total_div_jcp_brl == Decimal("350.00")
+    assert div3.total_geral_brl == Decimal("360.00")
+    # Base 100%: 180 / 350 = 51.43%, 170 / 350 = 48.57%
+    assert div3.pct_dividendo_total == Decimal("51.43")
+    assert div3.pct_jcp_total == Decimal("48.57")
+    assert div3.pct_dividendo_total + div3.pct_jcp_total == Decimal("100.00")
+
+    # Verifica anos de TEST_DIV3
+    assert len(div3.anos) == 2
+    ano23 = div3.anos[0]
+    assert ano23.ano == 2023
+    assert ano23.dividendos_brl == Decimal("100.00")
+    assert ano23.jcp_brl == Decimal("50.00")
+    assert ano23.total_div_jcp_brl == Decimal("150.00")
+    assert ano23.pct_dividendo == Decimal("66.67")
+    assert ano23.pct_jcp == Decimal("33.33")
+    assert ano23.pct_dividendo + ano23.pct_jcp == Decimal("100.00")
+    assert ano23.rendimentos_brl == Decimal("10.00")
+    assert ano23.total_geral_brl == Decimal("160.00")
+
+    ano24 = div3.anos[1]
+    assert ano24.ano == 2024
+    assert ano24.dividendos_brl == Decimal("80.00")
+    assert ano24.jcp_brl == Decimal("120.00")
+    assert ano24.total_div_jcp_brl == Decimal("200.00")
+    assert ano24.pct_dividendo == Decimal("40.00")
+    assert ano24.pct_jcp == Decimal("60.00")
+    assert ano24.pct_dividendo + ano24.pct_jcp == Decimal("100.00")
+
+    # Verifica TEST_ENC3 (encerrada)
+    enc3 = next(a for a in resp.ativos if a.ticker == "TEST_ENC3")
+    assert enc3.em_custodia is False
+    assert enc3.quantidade_saldo == Decimal("0")
+    assert enc3.total_dividendos_brl == Decimal("25.00")
+    assert enc3.total_jcp_brl == Decimal("0.00")
+    assert enc3.pct_dividendo_total == Decimal("100.00")
+    assert enc3.pct_jcp_total == Decimal("0.00")
+
+    # 2. Consulta filtrando somente_em_custodia = True
+    resp_custodia = calcular_proventos_anuais_carteira(db=db, carteira_id=carteira.id, somente_em_custodia=True)
+    assert len(resp_custodia.ativos) == 1
+    assert resp_custodia.ativos[0].ticker == "TEST_DIV3"
+
+    # 3. Testa endpoint HTTP
+    client = TestClient(app)
+    http_resp = client.get(f"/api/v1/posicoes/proventos-anuais?carteira_id={carteira.id}&somente_em_custodia=true")
+    assert http_resp.status_code == 200
+    data = http_resp.json()
+    assert data["carteira_id"] == carteira.id
+    assert len(data["ativos"]) == 1
+    assert data["ativos"][0]["ticker"] == "TEST_DIV3"
+    assert float(data["ativos"][0]["pct_dividendo_total"]) == 51.43
+    assert float(data["ativos"][0]["pct_jcp_total"]) == 48.57
+    assert len(data["ativos"][0]["anos"]) == 2
+
+
+
 
 
 

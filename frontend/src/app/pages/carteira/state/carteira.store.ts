@@ -15,6 +15,8 @@ import {
   FiltroClasseCarteira,
   PosicaoConsolidada,
   PosicaoEnriquecida,
+  ProventosAnuaisCarteiraResponse,
+  ProventosAtivoAnual,
   ResumoBinanceMetadata,
   TipoAtivo,
   Transacao,
@@ -43,6 +45,48 @@ export function matchClasse(tipo: TipoAtivo | undefined, filtro: FiltroClasseCar
   }
 }
 
+const SETORES_MAP_FRONTEND: Record<string, string> = {
+  BBAS3: 'Bancos', BBDC3: 'Bancos', BBDC4: 'Bancos', ITUB3: 'Bancos', ITUB4: 'Bancos',
+  ITSA3: 'Bancos', ITSA4: 'Bancos', SANB3: 'Bancos', SANB4: 'Bancos', SANB11: 'Bancos',
+  BEES3: 'Bancos', BEES4: 'Bancos', BPAC11: 'Bancos', BRSR6: 'Bancos',
+  BBSE3: 'Seguradoras', CXSE3: 'Seguradoras', IRBR3: 'Seguradoras', PSSA3: 'Seguradoras', WIZC3: 'Seguradoras',
+  KLBN3: 'Papel e Celulose', KLBN4: 'Papel e Celulose', KLBN11: 'Papel e Celulose', SUZB3: 'Papel e Celulose', RANI3: 'Papel e Celulose',
+  CMIG3: 'Energia Elétrica', CMIG4: 'Energia Elétrica', TAEE11: 'Energia Elétrica', ISAE4: 'Energia Elétrica', TRPL4: 'Energia Elétrica',
+  ELET3: 'Energia Elétrica', ELET6: 'Energia Elétrica', AESB3: 'Energia Elétrica', EQTL3: 'Energia Elétrica', CPFE3: 'Energia Elétrica',
+  SAPR3: 'Saneamento', SAPR4: 'Saneamento', SAPR11: 'Saneamento', CSMG3: 'Saneamento', SBSP3: 'Saneamento',
+  VALE3: 'Mineração e Siderurgia', GGBR4: 'Mineração e Siderurgia', CSNA3: 'Mineração e Siderurgia', USIM5: 'Mineração e Siderurgia',
+  PETR3: 'Petróleo e Combustíveis', PETR4: 'Petróleo e Combustíveis', PRIO3: 'Petróleo e Combustíveis', VBBR3: 'Petróleo e Combustíveis', UGPA3: 'Petróleo e Combustíveis',
+  LEVE3: 'Automóveis e Peças', MYPK3: 'Automóveis e Peças', RAPT4: 'Automóveis e Peças', TUPY3: 'Automóveis e Peças', POMO4: 'Automóveis e Peças',
+  TIMS3: 'Telecomunicações', VIVT3: 'Telecomunicações',
+  ALOS3: 'Imobiliário e Shoppings', MULT3: 'Imobiliário e Shoppings', IGTI11: 'Imobiliário e Shoppings', CYRE3: 'Imobiliário e Shoppings',
+  MGLU3: 'Comércio e Varejo', LREN3: 'Comércio e Varejo', ARZZ3: 'Comércio e Varejo',
+  ABEV3: 'Alimentos e Bebidas', JBSS3: 'Alimentos e Bebidas',
+  WEGE3: 'Bens Industriais', EMBR3: 'Bens Industriais',
+  RAIL3: 'Logística e Transportes', RENT3: 'Logística e Transportes', CCRO3: 'Logística e Transportes',
+  HGLG11: 'Imobiliário (Logística)', HGLG12: 'Imobiliário (Logística)',
+  HGBS11: 'Imobiliário (Shoppings)', HGBS12: 'Imobiliário (Shoppings)',
+  KNRI11: 'Imobiliário (Híbrido)', KNRI12: 'Imobiliário (Híbrido)',
+  XPCI11: 'Imobiliário (Papel / Recebíveis)', PMIS11: 'Imobiliário (Papel / Recebíveis)',
+  BTC: 'Criptomoedas', ETH: 'Smart Contracts', SOL: 'Smart Contracts',
+  AAVE: 'Finanças Descentralizadas (DeFi)', PENDLE: 'Finanças Descentralizadas (DeFi)',
+  USDT: 'Stablecoins', ERA: 'Web3 & Infraestrutura', SXT: 'Web3 & Infraestrutura',
+};
+
+export function inferirSetorAtivo(ticker: string, setorOriginal?: string | null, tipo?: string): string {
+  const s = (setorOriginal || '').trim();
+  if (s && s !== 'Outros') return s;
+  const tk = (ticker || '').trim().toUpperCase();
+  if (SETORES_MAP_FRONTEND[tk]) return SETORES_MAP_FRONTEND[tk];
+  if (tk.startsWith('TD-') || tk.startsWith('TESOURO')) return 'Tesouro Direto';
+  if (tk.startsWith('CDB-') || tk.startsWith('CDB')) return 'Títulos Bancários (CDB)';
+  if (tipo === 'FII' || (tk.endsWith('11') && tipo !== 'Acao')) return 'Imobiliário';
+  if (tipo === 'Cripto') return 'Criptomoedas';
+  if (tipo === 'RendaFixa') return 'Renda Fixa';
+  return s || 'Outros';
+}
+
+
+
 @Injectable({
   providedIn: 'root',
 })
@@ -67,6 +111,7 @@ export class CarteiraStore {
   readonly cotacaoUsdBrl = signal<number | null>(null);
   readonly cotacaoBtcBrl = signal<number | null>(null);
   readonly transacoesAtivoModal = signal<Transacao[]>([]);
+  readonly proventosAnuaisAtivos = signal<ProventosAtivoAnual[]>([]);
   readonly loading = signal<boolean>(false);
   readonly syncingCotacoes = signal<boolean>(false);
   readonly error = signal<string | null>(null);
@@ -550,6 +595,23 @@ export class CarteiraStore {
     const ativas = todas.filter((p) => p.quantidade > 0 && matchClasse(p.ativo.tipo, filtro));
     const totalMercado = ativas.reduce((acc, p) => acc + p.valorMercado, 0);
 
+    // Agrupamento por Ativo (cada ativo individual, ordenado por maior valor de mercado)
+    const ordenadoAtivos = [...ativas].sort((a, b) => b.valorMercado - a.valorMercado);
+    const labelsAtivo = ordenadoAtivos.map((p) => p.ativo.ticker);
+    const dataAtivo = ordenadoAtivos.map((p) => p.valorMercado);
+    const pctAtivo = dataAtivo.map((v) => (totalMercado > 0 ? (v / totalMercado) * 100 : 0));
+
+    // Agrupamento por Setor
+    const mapaSetores: Record<string, number> = {};
+    for (const item of ativas) {
+      const setor = inferirSetorAtivo(item.ativo.ticker, item.ativo.setor, item.ativo.tipo);
+      mapaSetores[setor] = (mapaSetores[setor] || 0) + item.valorMercado;
+    }
+    const ordenadoSetores = Object.entries(mapaSetores).sort((a, b) => b[1] - a[1]);
+    const labelsSetor = ordenadoSetores.map(([s]) => s);
+    const dataSetor = ordenadoSetores.map(([, val]) => val);
+    const pctSetor = dataSetor.map((v) => (totalMercado > 0 ? (v / totalMercado) * 100 : 0));
+
     // Agrupamento por Classe
     const mapaClasses: Record<string, number> = {};
     for (const item of ativas) {
@@ -561,20 +623,10 @@ export class CarteiraStore {
     const dataClasse = ordenadoClasses.map(([, val]) => val);
     const pctClasse = dataClasse.map((v) => (totalMercado > 0 ? (v / totalMercado) * 100 : 0));
 
-    // Agrupamento por Setor
-    const mapaSetores: Record<string, number> = {};
-    for (const item of ativas) {
-      const setor = (item.ativo.setor || '').trim() || 'Outros';
-      mapaSetores[setor] = (mapaSetores[setor] || 0) + item.valorMercado;
-    }
-    const ordenadoSetores = Object.entries(mapaSetores).sort((a, b) => b[1] - a[1]);
-    const labelsSetor = ordenadoSetores.map(([s]) => s);
-    const dataSetor = ordenadoSetores.map(([, val]) => val);
-    const pctSetor = dataSetor.map((v) => (totalMercado > 0 ? (v / totalMercado) * 100 : 0));
-
     return {
-      porClasse: { labels: labelsClasse, data: dataClasse, percentual: pctClasse },
+      porAtivo: { labels: labelsAtivo, data: dataAtivo, percentual: pctAtivo },
       porSetor: { labels: labelsSetor, data: dataSetor, percentual: pctSetor },
+      porClasse: { labels: labelsClasse, data: dataClasse, percentual: pctClasse },
     };
   });
 
@@ -636,6 +688,31 @@ export class CarteiraStore {
     };
   });
 
+  /**
+   * 7. proventosAnuaisCustodiaFiltrados:
+   * Retorna os ativos que estão em custódia ativa (quantidade_saldo > 0)
+   * que pertencem à classe filtrada e possuem proventos registrados,
+   * ordenados por maior total de Dividendos + JSCP.
+   */
+  readonly proventosAnuaisCustodiaFiltrados = computed<ProventosAtivoAnual[]>(() => {
+    const filtro = this.filtroClasse();
+    const todos = this.proventosAnuaisAtivos();
+    return todos
+      .filter(
+        (a) =>
+          a.em_custodia &&
+          Number(a.quantidade_saldo) > 0 &&
+          matchClasse(a.tipo_ativo, filtro) &&
+          Number(a.total_geral_brl) > 0,
+      )
+      .sort(
+        (a, b) =>
+          Number(b.total_div_jcp_brl) - Number(a.total_div_jcp_brl) ||
+          Number(b.total_geral_brl) - Number(a.total_geral_brl) ||
+          (a.ticker || '').localeCompare(b.ticker || ''),
+      );
+  });
+
   // ---------- Ações de Estado ----------
 
   setVisaoCustodia(visao: 'ATIVAS' | 'ENCERRADAS'): void {
@@ -682,11 +759,26 @@ export class CarteiraStore {
 
       let posicoes: PosicaoConsolidada[];
       let cotacoesResp: CotacoesCarteiraResponse | null = null;
+      let provResp: ProventosAnuaisCarteiraResponse | null = null;
+
+      const proventosReq = this.carteiraService.obterProventosAnuais(id, undefined, false).pipe(
+        catchError((provErr) => {
+          console.warn('Falha ao obter proventos anuais:', provErr);
+          return of({ carteira_id: id, ativos: [] } as ProventosAnuaisCarteiraResponse);
+        }),
+      );
 
       if (silencioso && temCotacoes && !forcarCotacoes) {
-        posicoes = await firstValueFrom(this.carteiraService.getPosicoes(id, false));
+        const [pos, prov] = await firstValueFrom(
+          forkJoin([
+            this.carteiraService.getPosicoes(id, false),
+            proventosReq,
+          ]),
+        );
+        posicoes = pos;
+        provResp = prov;
       } else {
-        const [pos, cot] = await firstValueFrom(
+        const [pos, cot, prov] = await firstValueFrom(
           forkJoin([
             this.carteiraService.getPosicoes(id, false),
             this.carteiraService.obterCotacoes(id, forcarCotacoes).pipe(
@@ -700,13 +792,18 @@ export class CarteiraStore {
                 } as CotacoesCarteiraResponse);
               }),
             ),
+            proventosReq,
           ]),
         );
         posicoes = pos;
         cotacoesResp = cot;
+        provResp = prov;
       }
 
       this.todasPosicoes.set(posicoes || []);
+      if (provResp) {
+        this.proventosAnuaisAtivos.set(provResp.ativos || []);
+      }
       if (cotacoesResp) {
         this.cotacoesMap.set(cotacoesResp?.cotacoes || {});
         this.cotacoesMeta.set({

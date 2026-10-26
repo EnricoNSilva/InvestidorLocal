@@ -30,6 +30,30 @@ def _colunas_pendentes(engine: Engine) -> list[tuple[str, str, str]]:
     return pendentes
 
 
+def enriquecer_setores_ativos_defensivo(engine: Engine) -> int:
+    """Preenche o setor de ativos que estejam com setor NULL, vazio ou 'Outros', usando classificador_setor."""
+    from app.services.classificador_setor import obter_setor_padrao
+
+    insp = inspect(engine)
+    if "ativos" not in set(insp.get_table_names()):
+        return 0
+
+    atualizados = 0
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, ticker, tipo, setor FROM ativos")).fetchall()
+        for row in rows:
+            ativo_id, ticker, tipo, setor_atual = row[0], row[1], row[2], row[3]
+            if not setor_atual or setor_atual.strip() in ("", "Outros"):
+                setor_sugerido = obter_setor_padrao(ticker, tipo)
+                if setor_sugerido and setor_sugerido != "Outros":
+                    conn.execute(
+                        text('UPDATE "ativos" SET "setor" = :setor WHERE "id" = :id'),
+                        {"setor": setor_sugerido, "id": ativo_id},
+                    )
+                    atualizados += 1
+    return atualizados
+
+
 def aplicar_migracoes_defensivas(engine: Engine, db_path: Optional[Path] = None) -> list[str]:
     """Executar DEPOIS de Base.metadata.create_all(engine).
 
@@ -38,6 +62,7 @@ def aplicar_migracoes_defensivas(engine: Engine, db_path: Optional[Path] = None)
     """
     pendentes = _colunas_pendentes(engine)
     if not pendentes:
+        enriquecer_setores_ativos_defensivo(engine)
         return []
     if db_path is not None and db_path.exists():  # backup antes de qualquer ALTER
         shutil.copy2(db_path, db_path.with_suffix(f".db.bak-{datetime.now():%Y%m%d%H%M%S}"))
@@ -46,4 +71,5 @@ def aplicar_migracoes_defensivas(engine: Engine, db_path: Optional[Path] = None)
         for tabela, coluna, ddl in pendentes:
             conn.execute(text(f'ALTER TABLE "{tabela}" ADD COLUMN "{coluna}" {ddl}'))
             aplicadas.append(f"{tabela}.{coluna}")
+    enriquecer_setores_ativos_defensivo(engine)
     return aplicadas

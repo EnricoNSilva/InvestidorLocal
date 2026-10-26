@@ -33,6 +33,7 @@ dist/
 
 # IDEs e Editores
 .vscode/
+*.code-workspace
 .idea/
 *.swp
 *.swo

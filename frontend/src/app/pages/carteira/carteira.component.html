@@ -408,6 +408,7 @@
   <div class="charts-grid">
     <app-carteira-allocation-chart
       [data]="store.chartAlocacaoClasseSetor()"
+      [filtroClasse]="store.filtroClasse()"
     ></app-carteira-allocation-chart>
 
     <app-carteira-concentration-chart
@@ -416,6 +417,7 @@
 
     <app-carteira-proventos-chart
       [data]="store.chartRankingProventos()"
+      [proventosAnuais]="store.proventosAnuaisCustodiaFiltrados()"
       [titulo]="store.filtroClasse() === 'CRIPTO' ? 'Top Geradores de Rendimentos (EARN)' : 'Top Geradores de Proventos & YoC'"
       [subtitulo]="store.filtroClasse() === 'CRIPTO' ? 'Rendimentos acumulados de Staking / Binance Earn' : 'Total acumulado recebido (R$) vs. Yield on Cost (%)'"
     ></app-carteira-proventos-chart>

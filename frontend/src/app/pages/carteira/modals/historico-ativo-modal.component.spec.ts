@@ -92,6 +92,7 @@ describe('HistoricoAtivoModalComponent', () => {
       'excluirTransacao',
       'getPosicoes',
       'obterCotacoes',
+      'obterProventosAnuais',
     ]);
     spyService.carteiraAtivaId = jasmine.createSpy('carteiraAtivaId').and.returnValue(1);
     spyService.listarTransacoes.and.returnValue(of(fakeTransacoes));
@@ -102,6 +103,7 @@ describe('HistoricoAtivoModalComponent', () => {
     spyService.obterCotacoes.and.returnValue(
       of({ carteira_id: 1, atualizado_em: '', stale: false, cotacoes: {} }),
     );
+    spyService.obterProventosAnuais.and.returnValue(of({ carteira_id: 1, ativos: [] }));
 
     await TestBed.configureTestingModule({
       imports: [HistoricoAtivoModalComponent],
@@ -126,10 +128,14 @@ describe('HistoricoAtivoModalComponent', () => {
     fixture.detectChanges();
   });
 
-  it('deve listar as transações do ativo', () => {
+  it('deve listar as transações do ativo e calcular composição de proventos', () => {
     expect(component.transacoes().length).toBe(2);
-    const rows = fixture.nativeElement.querySelectorAll('tbody tr');
+    const rows = fixture.nativeElement.querySelectorAll('.data-table tbody tr');
     expect(rows.length).toBe(2);
+
+    expect(component.resumoProventosAnual().temProventos).toBeTrue();
+    expect(component.resumoProventosAnual().totDiv).toBe(200);
+    expect(component.resumoProventosAnual().pctDivTot).toBe(100);
   });
 
   it('deve chamar criarTransacao do store ao adicionar novo provento', async () => {

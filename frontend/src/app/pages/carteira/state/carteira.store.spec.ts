@@ -10,6 +10,7 @@ import {
   CotacoesCarteiraResponse,
   FiltroClasseCarteira,
   PosicaoConsolidada,
+  ProventosAtivoAnual,
   Transacao,
   TransacaoCreateDto,
   TransacaoUpdateDto,
@@ -197,12 +198,92 @@ describe('CarteiraStore', () => {
     },
   };
 
+  const mockProventosAnuais: ProventosAtivoAnual[] = [
+    {
+      ativo_id: 1,
+      ticker: 'PETR4',
+      nome: 'Petróleo Brasileiro S.A.',
+      tipo_ativo: 'Acao',
+      em_custodia: true,
+      quantidade_saldo: 100,
+      total_dividendos_brl: 200,
+      total_jcp_brl: 100,
+      total_rendimentos_brl: 0,
+      total_div_jcp_brl: 300,
+      total_geral_brl: 300,
+      pct_dividendo_total: 66.67,
+      pct_jcp_total: 33.33,
+      anos: [
+        {
+          ano: 2024,
+          dividendos_brl: 200,
+          jcp_brl: 100,
+          rendimentos_brl: 0,
+          total_div_jcp_brl: 300,
+          total_geral_brl: 300,
+          pct_dividendo: 66.67,
+          pct_jcp: 33.33,
+          qtd_pagamentos_dividendo: 2,
+          qtd_pagamentos_jcp: 1,
+          qtd_pagamentos_rendimento: 0,
+        },
+      ],
+    },
+    {
+      ativo_id: 2,
+      ticker: 'HGLG11',
+      nome: 'CSHG Logística FII',
+      tipo_ativo: 'FII',
+      em_custodia: true,
+      quantidade_saldo: 10,
+      total_dividendos_brl: 0,
+      total_jcp_brl: 0,
+      total_rendimentos_brl: 160,
+      total_div_jcp_brl: 0,
+      total_geral_brl: 160,
+      pct_dividendo_total: 0,
+      pct_jcp_total: 0,
+      anos: [
+        {
+          ano: 2024,
+          dividendos_brl: 0,
+          jcp_brl: 0,
+          rendimentos_brl: 160,
+          total_div_jcp_brl: 0,
+          total_geral_brl: 160,
+          pct_dividendo: 0,
+          pct_jcp: 0,
+          qtd_pagamentos_dividendo: 0,
+          qtd_pagamentos_jcp: 0,
+          qtd_pagamentos_rendimento: 12,
+        },
+      ],
+    },
+    {
+      ativo_id: 6,
+      ticker: 'BBAS3',
+      nome: 'Banco do Brasil S.A.',
+      tipo_ativo: 'Acao',
+      em_custodia: false,
+      quantidade_saldo: 0,
+      total_dividendos_brl: 300,
+      total_jcp_brl: 200,
+      total_rendimentos_brl: 0,
+      total_div_jcp_brl: 500,
+      total_geral_brl: 500,
+      pct_dividendo_total: 60,
+      pct_jcp_total: 40,
+      anos: [],
+    },
+  ];
+
   beforeEach(() => {
     localStorage.clear();
 
     const spy = jasmine.createSpyObj<CarteiraService>('CarteiraService', [
       'getPosicoes',
       'obterCotacoes',
+      'obterProventosAnuais',
       'recalcularCarteira',
       'ajustarPosicaoManual',
       'atualizarAtivo',
@@ -221,6 +302,7 @@ describe('CarteiraStore', () => {
 
     spy.getPosicoes.and.returnValue(of(mockPosicoes));
     spy.obterCotacoes.and.returnValue(of(mockCotacoesResponse));
+    spy.obterProventosAnuais.and.returnValue(of({ carteira_id: 1, ativos: mockProventosAnuais }));
     spy.recalcularCarteira.and.returnValue(of({ status: 'success', mensagem: 'ok' }));
     spy.ajustarPosicaoManual.and.returnValue(of(mockPosicoes[0]));
     spy.atualizarAtivo.and.returnValue(of(ativoPetr4));
@@ -662,8 +744,13 @@ describe('CarteiraStore', () => {
       store.setFiltroClasse('PATRIMONIO');
       const chart = store.chartAlocacaoClasseSetor();
 
+      expect(chart.porAtivo.labels.length).toBeGreaterThan(0);
       expect(chart.porClasse.labels.length).toBeGreaterThan(0);
       expect(chart.porSetor.labels.length).toBeGreaterThan(0);
+
+      // Soma dos percentuais por ativo deve somar 100%
+      const somaPctAtivo = chart.porAtivo.percentual.reduce((acc, v) => acc + v, 0);
+      expect(somaPctAtivo).toBeCloseTo(100, 1);
 
       // Soma dos percentuais por classe deve somar 100%
       const somaPctClasse = chart.porClasse.percentual.reduce((acc, v) => acc + v, 0);
@@ -1159,4 +1246,31 @@ describe('CarteiraStore', () => {
       expect(enriquecida.custoTotal).toBe(25000);
     });
   });
+
+  describe('proventosAnuaisCustodiaFiltrados', () => {
+    it('deve filtrar apenas ativos em custódia ativa (saldo > 0) e respeitar o filtro de classe', async () => {
+      await store.carregarDados(1);
+
+      // Default RV_TOTAL: PETR4 (Ação) e HGLG11 (FII) estão em custódia e têm proventos. BBAS3 tem saldo 0 e deve ser excluída.
+      store.setFiltroClasse('RV_TOTAL');
+      let ativosCustodia = store.proventosAnuaisCustodiaFiltrados();
+      expect(ativosCustodia.length).toBe(2);
+      expect(ativosCustodia.map((a) => a.ticker)).toEqual(['PETR4', 'HGLG11']);
+
+      // Filtro ACAO: apenas PETR4
+      store.setFiltroClasse('ACAO');
+      ativosCustodia = store.proventosAnuaisCustodiaFiltrados();
+      expect(ativosCustodia.length).toBe(1);
+      expect(ativosCustodia[0].ticker).toBe('PETR4');
+      expect(ativosCustodia[0].pct_dividendo_total).toBe(66.67);
+      expect(ativosCustodia[0].pct_jcp_total).toBe(33.33);
+
+      // Filtro FII: apenas HGLG11
+      store.setFiltroClasse('FII');
+      ativosCustodia = store.proventosAnuaisCustodiaFiltrados();
+      expect(ativosCustodia.length).toBe(1);
+      expect(ativosCustodia[0].ticker).toBe('HGLG11');
+    });
+  });
 });
+

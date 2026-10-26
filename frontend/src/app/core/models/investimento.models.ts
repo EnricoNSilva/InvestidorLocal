@@ -234,8 +234,9 @@ export interface CarteiraKpis {
 }
 
 export interface ChartAlocacaoData {
-  porClasse: { labels: string[]; data: number[]; percentual: number[] };
+  porAtivo: { labels: string[]; data: number[]; percentual: number[] };
   porSetor: { labels: string[]; data: number[]; percentual: number[] };
+  porClasse: { labels: string[]; data: number[]; percentual: number[] };
 }
 
 export interface ChartPesoAtivosData {
@@ -277,3 +278,40 @@ export interface RetornoImportacao {
   pendencias?: string[];
   avisos?: string[];
 }
+
+export interface ProventoAnoItem {
+  ano: number;
+  dividendos_brl: string | number;
+  jcp_brl: string | number;
+  rendimentos_brl: string | number;
+  total_div_jcp_brl: string | number;
+  total_geral_brl: string | number;
+  pct_dividendo: string | number;
+  pct_jcp: string | number;
+  qtd_pagamentos_dividendo: number;
+  qtd_pagamentos_jcp: number;
+  qtd_pagamentos_rendimento: number;
+}
+
+export interface ProventosAtivoAnual {
+  ativo_id: number;
+  ticker: string;
+  nome: string;
+  tipo_ativo: TipoAtivo;
+  em_custodia: boolean;
+  quantidade_saldo: string | number;
+  total_dividendos_brl: string | number;
+  total_jcp_brl: string | number;
+  total_rendimentos_brl: string | number;
+  total_div_jcp_brl: string | number;
+  total_geral_brl: string | number;
+  pct_dividendo_total: string | number;
+  pct_jcp_total: string | number;
+  anos: ProventoAnoItem[];
+}
+
+export interface ProventosAnuaisCarteiraResponse {
+  carteira_id: number;
+  ativos: ProventosAtivoAnual[];
+}
+

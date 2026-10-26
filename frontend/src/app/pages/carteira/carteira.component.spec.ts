@@ -133,6 +133,7 @@ describe('CarteiraComponent', () => {
     const spyService = jasmine.createSpyObj('CarteiraService', [
       'getPosicoes',
       'obterCotacoes',
+      'obterProventosAnuais',
       'recalcularCarteira',
       'ajustarPosicaoManual',
       'converterTicker',
@@ -152,6 +153,7 @@ describe('CarteiraComponent', () => {
     spyService.carteiras = jasmine.createSpy('carteiras').and.returnValue([fakeCarteira]);
     spyService.getPosicoes.and.returnValue(of(fakePosicoes));
     spyService.obterCotacoes.and.returnValue(of(fakeCotacoes));
+    spyService.obterProventosAnuais.and.returnValue(of({ carteira_id: 1, ativos: [] }));
     spyService.recalcularCarteira.and.returnValue(of({}));
     spyService.ajustarPosicaoManual.and.returnValue(of({}));
     spyService.converterTicker.and.returnValue(of({}));

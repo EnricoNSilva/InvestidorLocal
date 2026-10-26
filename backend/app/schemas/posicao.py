@@ -85,3 +85,41 @@ class CotacoesCarteiraResponse(BaseModel):
     cotacao_usd_brl: Optional[Decimal] = None
     cotacao_btc_brl: Optional[Decimal] = None
     resumo_binance: Optional[Dict[str, Any]] = None
+
+class ProventoAnoItemRead(BaseModel):
+    ano: int = Field(..., description="Ano de recebimento")
+    dividendos_brl: Decimal = Field(default=Decimal("0.0"), description="Total de dividendos no ano em R$")
+    jcp_brl: Decimal = Field(default=Decimal("0.0"), description="Total de JCP no ano em R$")
+    rendimentos_brl: Decimal = Field(default=Decimal("0.0"), description="Total de rendimentos/aluguel no ano em R$")
+    total_div_jcp_brl: Decimal = Field(default=Decimal("0.0"), description="Soma de dividendos e JCP no ano em R$")
+    total_geral_brl: Decimal = Field(default=Decimal("0.0"), description="Total geral de proventos no ano em R$")
+    pct_dividendo: Decimal = Field(default=Decimal("0.0"), description="Percentual de dividendos sobre (Div + JCP)")
+    pct_jcp: Decimal = Field(default=Decimal("0.0"), description="Percentual de JCP sobre (Div + JCP)")
+    qtd_pagamentos_dividendo: int = Field(default=0, description="Quantidade de pagamentos de dividendos no ano")
+    qtd_pagamentos_jcp: int = Field(default=0, description="Quantidade de pagamentos de JCP no ano")
+    qtd_pagamentos_rendimento: int = Field(default=0, description="Quantidade de pagamentos de rendimentos no ano")
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ProventosAtivoAnualRead(BaseModel):
+    ativo_id: int
+    ticker: str
+    nome: str
+    tipo_ativo: TipoAtivo
+    em_custodia: bool = Field(default=True, description="True se quantidade_saldo > 0")
+    quantidade_saldo: Decimal = Field(default=Decimal("0.0"), description="Quantidade atual em custódia")
+    total_dividendos_brl: Decimal = Field(default=Decimal("0.0"))
+    total_jcp_brl: Decimal = Field(default=Decimal("0.0"))
+    total_rendimentos_brl: Decimal = Field(default=Decimal("0.0"))
+    total_div_jcp_brl: Decimal = Field(default=Decimal("0.0"))
+    total_geral_brl: Decimal = Field(default=Decimal("0.0"))
+    pct_dividendo_total: Decimal = Field(default=Decimal("0.0"))
+    pct_jcp_total: Decimal = Field(default=Decimal("0.0"))
+    anos: List[ProventoAnoItemRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ProventosAnuaisCarteiraResponse(BaseModel):
+    carteira_id: int
+    ativos: List[ProventosAtivoAnualRead] = Field(default_factory=list)
+

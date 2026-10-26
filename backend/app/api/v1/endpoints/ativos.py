@@ -14,6 +14,7 @@ from app.schemas.ativo import (
 )
 from app.services.portfolio import converter_ativo_ticker, PortfolioError
 from app.services.cotacoes import obter_cotacao_historica
+from app.services.classificador_setor import obter_setor_padrao
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ def criar_ativo(
         ticker=ticker_formatado,
         nome=ativo_in.nome.strip(),
         tipo=ativo_in.tipo,
-        setor=ativo_in.setor.strip() if ativo_in.setor else None,
+        setor=ativo_in.setor.strip() if ativo_in.setor else obter_setor_padrao(ticker_formatado, ativo_in.tipo),
         cotacao_manual=ativo_in.cotacao_manual,
     )
     db.add(db_ativo)

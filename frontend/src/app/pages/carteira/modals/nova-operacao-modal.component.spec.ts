@@ -32,6 +32,7 @@ describe('NovaOperacaoModalComponent', () => {
       'criarTransacao',
       'getPosicoes',
       'obterCotacoes',
+      'obterProventosAnuais',
     ]);
     spyService.carteiraAtivaId = jasmine.createSpy('carteiraAtivaId').and.returnValue(1);
     spyService.criarAtivo.and.returnValue(
@@ -42,6 +43,7 @@ describe('NovaOperacaoModalComponent', () => {
     spyService.obterCotacoes.and.returnValue(
       of({ carteira_id: 1, atualizado_em: '', stale: false, cotacoes: {} }),
     );
+    spyService.obterProventosAnuais.and.returnValue(of({ carteira_id: 1, ativos: [] }));
 
     await TestBed.configureTestingModule({
       imports: [NovaOperacaoModalComponent],

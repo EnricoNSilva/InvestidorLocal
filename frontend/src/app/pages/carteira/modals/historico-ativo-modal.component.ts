@@ -7,6 +7,7 @@ import {
   input,
   signal,
   effect,
+  computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -40,6 +41,73 @@ import {
         <div class="modal-body">
           <div *ngIf="erro()" class="alert-box error">
             <span>{{ erro() }}</span>
+          </div>
+
+          <!-- Resumo Anual: Dividendo vs JSCP -->
+          <div class="proventos-anual-panel" *ngIf="resumoProventosAnual().temProventos">
+            <div class="panel-header">
+              <h4 class="panel-title">📊 Composição Anual de Proventos (Dividendo vs. JSCP)</h4>
+              <span class="panel-sub">
+                Proporção calculada sobre a soma societária de Dividendos e JSCP recebidos ano a ano
+              </span>
+            </div>
+
+            <div class="panel-table-wrap">
+              <table class="panel-table">
+                <thead>
+                  <tr>
+                    <th>Ano</th>
+                    <th class="text-right">Dividendos (R$)</th>
+                    <th class="text-right">% Div</th>
+                    <th class="text-center prop-col">Proporção Visual</th>
+                    <th class="text-right">% JSCP</th>
+                    <th class="text-right">JSCP (R$)</th>
+                    <th class="text-right">Total Div+JCP</th>
+                    <th class="text-right" *ngIf="resumoProventosAnual().totRend > 0">Aluguel BTC/Rend.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr *ngFor="let it of resumoProventosAnual().itens">
+                    <td class="font-bold">{{ it.ano }}</td>
+                    <td class="text-right font-mono text-green">{{ formatarMoeda(it.dividendos) }}</td>
+                    <td class="text-right font-mono text-green font-bold">{{ it.pctDividendo.toFixed(1) }}%</td>
+                    <td class="prop-cell">
+                      <div class="prop-bar-container" [title]="it.totalDivJcp > 0 ? ('Dividendo: ' + it.pctDividendo + '% | JSCP: ' + it.pctJcp + '%') : '100% Rendimento'">
+                        <div class="prop-bar-div" [style.width.%]="it.pctDividendo"></div>
+                        <div class="prop-bar-jcp" [style.width.%]="it.pctJcp"></div>
+                        <div class="prop-bar-rend" *ngIf="it.totalDivJcp === 0 && it.rendimentos > 0" style="width: 100%"></div>
+                      </div>
+                    </td>
+                    <td class="text-right font-mono text-blue font-bold">{{ it.pctJcp.toFixed(1) }}%</td>
+                    <td class="text-right font-mono text-blue">{{ formatarMoeda(it.jcp) }}</td>
+                    <td class="text-right font-mono font-bold">{{ formatarMoeda(it.totalDivJcp) }}</td>
+                    <td class="text-right font-mono text-muted" *ngIf="resumoProventosAnual().totRend > 0">
+                      {{ it.rendimentos > 0 ? formatarMoeda(it.rendimentos) : '-' }}
+                    </td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr class="total-row">
+                    <td class="font-bold">Total Acumulado</td>
+                    <td class="text-right font-mono text-green font-bold">{{ formatarMoeda(resumoProventosAnual().totDiv) }}</td>
+                    <td class="text-right font-mono text-green font-bold">{{ resumoProventosAnual().pctDivTot.toFixed(1) }}%</td>
+                    <td class="prop-cell">
+                      <div class="prop-bar-container">
+                        <div class="prop-bar-div" [style.width.%]="resumoProventosAnual().pctDivTot"></div>
+                        <div class="prop-bar-jcp" [style.width.%]="resumoProventosAnual().pctJcpTot"></div>
+                        <div class="prop-bar-rend" *ngIf="resumoProventosAnual().totalDivJcp === 0 && resumoProventosAnual().totRend > 0" style="width: 100%"></div>
+                      </div>
+                    </td>
+                    <td class="text-right font-mono text-blue font-bold">{{ resumoProventosAnual().pctJcpTot.toFixed(1) }}%</td>
+                    <td class="text-right font-mono text-blue font-bold">{{ formatarMoeda(resumoProventosAnual().totJcp) }}</td>
+                    <td class="text-right font-mono font-bold">{{ formatarMoeda(resumoProventosAnual().totalDivJcp) }}</td>
+                    <td class="text-right font-mono text-muted" *ngIf="resumoProventosAnual().totRend > 0">
+                      {{ formatarMoeda(resumoProventosAnual().totRend) }}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
 
           <!-- Formulário Rápido de Novo Lançamento para o Ativo -->
@@ -327,6 +395,85 @@ import {
         color: #ff7b72;
       }
     }
+    .proventos-anual-panel {
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1rem;
+      .panel-header {
+        margin-bottom: 0.75rem;
+      }
+      .panel-title {
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: var(--text-main);
+        margin: 0 0 0.2rem 0;
+      }
+      .panel-sub {
+        font-size: 0.74rem;
+        color: var(--text-muted);
+      }
+    }
+    .panel-table-wrap {
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      overflow-x: auto;
+      background: var(--bg-card);
+    }
+    .panel-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      th, td {
+        padding: 0.5rem 0.65rem;
+      }
+      th {
+        background-color: rgba(22, 27, 34, 0.85);
+        color: var(--text-muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.7rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+      tr:not(:last-child) td {
+        border-bottom: 1px solid var(--border-color);
+      }
+      .prop-col {
+        min-width: 130px;
+      }
+      .prop-cell {
+        vertical-align: middle;
+      }
+      .total-row {
+        background: rgba(255, 255, 255, 0.03);
+        border-top: 2px solid var(--border-color);
+        td {
+          border-bottom: none;
+        }
+      }
+    }
+    .prop-bar-container {
+      display: flex;
+      height: 8px;
+      width: 100%;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .prop-bar-div {
+      background: #10b981;
+      height: 100%;
+    }
+    .prop-bar-jcp {
+      background: #3b82f6;
+      height: 100%;
+    }
+    .prop-bar-rend {
+      background: #8b5cf6;
+      height: 100%;
+    }
+    .text-green { color: #10b981; }
+    .text-blue { color: #3b82f6; }
     .novo-lancamento-card {
       background: var(--bg-main);
       border: 1px solid var(--border-color);
@@ -521,6 +668,96 @@ export class HistoricoAtivoModalComponent {
   readonly transacoes = this.store.transacoesAtivoModal;
   readonly processando = signal<boolean>(false);
   readonly erro = signal<string | null>(null);
+
+  /**
+   * Agrupa dinamicamente as transações do ativo por ano,
+   * apurando a proporção societária (% Dividendo vs. % JCP) e valores em R$.
+   */
+  readonly resumoProventosAnual = computed(() => {
+    const txs = this.transacoes();
+    const mapa: Record<number, { div: number; jcp: number; rend: number }> = {};
+    for (const tx of txs) {
+      if (!['DIVIDENDO', 'JCP', 'RENDIMENTO'].includes(tx.tipo_operacao)) {
+        continue;
+      }
+      const dataStr = String(tx.data_hora || '');
+      const ano = parseInt(dataStr.substring(0, 4), 10) || new Date().getFullYear();
+      if (!mapa[ano]) {
+        mapa[ano] = { div: 0, jcp: 0, rend: 0 };
+      }
+      const val = Math.max(
+        0,
+        (Number(tx.quantidade) || 0) * (Number(tx.preco_unitario) || 0) - (Number(tx.taxas) || 0),
+      );
+      if (tx.tipo_operacao === 'DIVIDENDO') mapa[ano].div += val;
+      else if (tx.tipo_operacao === 'JCP') mapa[ano].jcp += val;
+      else if (tx.tipo_operacao === 'RENDIMENTO') mapa[ano].rend += val;
+    }
+
+    const anos = Object.keys(mapa)
+      .map(Number)
+      .sort((a, b) => b - a); // Mais recente primeiro
+    const itens: Array<{
+      ano: number;
+      dividendos: number;
+      jcp: number;
+      rendimentos: number;
+      totalDivJcp: number;
+      totalGeral: number;
+      pctDividendo: number;
+      pctJcp: number;
+    }> = [];
+    let totDiv = 0;
+    let totJcp = 0;
+    let totRend = 0;
+
+    for (const ano of anos) {
+      const d = mapa[ano].div;
+      const j = mapa[ano].jcp;
+      const r = mapa[ano].rend;
+      const totDivJcp = d + j;
+      const totGeral = totDivJcp + r;
+      let pctDiv = 0;
+      let pctJcp = 0;
+      if (totDivJcp > 0) {
+        pctDiv = Number(((d / totDivJcp) * 100).toFixed(2));
+        pctJcp = Number((100 - pctDiv).toFixed(2));
+      }
+      itens.push({
+        ano,
+        dividendos: d,
+        jcp: j,
+        rendimentos: r,
+        totalDivJcp: totDivJcp,
+        totalGeral: totGeral,
+        pctDividendo: pctDiv,
+        pctJcp: pctJcp,
+      });
+      totDiv += d;
+      totJcp += j;
+      totRend += r;
+    }
+
+    const totalDivJcp = totDiv + totJcp;
+    let pctDivTot = 0;
+    let pctJcpTot = 0;
+    if (totalDivJcp > 0) {
+      pctDivTot = Number(((totDiv / totalDivJcp) * 100).toFixed(2));
+      pctJcpTot = Number((100 - pctDivTot).toFixed(2));
+    }
+
+    return {
+      itens,
+      totDiv,
+      totJcp,
+      totRend,
+      totalDivJcp,
+      totalGeral: totalDivJcp + totRend,
+      pctDivTot,
+      pctJcpTot,
+      temProventos: itens.length > 0 && (totalDivJcp > 0 || totRend > 0),
+    };
+  });
 
   // Form de Novo Lançamento
   novoTipo: TipoOperacao = 'DIVIDENDO';

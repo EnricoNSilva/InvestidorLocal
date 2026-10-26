@@ -14,11 +14,13 @@ from app.schemas.posicao import (
     PosicaoConsolidadaRead,
     AjusteManualPosicaoRequest,
     CotacoesCarteiraResponse,
+    ProventosAnuaisCarteiraResponse,
 )
 from app.services.portfolio import (
     obter_ou_criar_carteira_padrao,
     recalcular_posicoes_carteira,
     ajustar_posicao_manual,
+    calcular_proventos_anuais_carteira,
     PortfolioError,
 )
 from app.services.cotacoes import obter_cotacoes_carteira
@@ -182,6 +184,24 @@ async def obter_cotacoes(
     db: Session = Depends(get_db)
 ):
     return await obter_cotacoes_carteira(db=db, carteira_id=carteira_id, forcar=forcar)
+
+@router.get("/proventos-anuais", response_model=ProventosAnuaisCarteiraResponse, summary="Obter detalhamento anual de proventos por empresa")
+def obter_proventos_anuais(
+    carteira_id: int = 1,
+    ativo_id: Optional[int] = None,
+    somente_em_custodia: bool = False,
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna o total anual e percentual recebido de Dividendos vs. JCP (e Rendimentos)
+    por empresa ano a ano (2022, 2023, 2024, etc.).
+    """
+    return calcular_proventos_anuais_carteira(
+        db=db,
+        carteira_id=carteira_id,
+        ativo_id=ativo_id,
+        somente_em_custodia=somente_em_custodia,
+    )
 
 @router.put(
     "/carteiras/{carteira_id}/ativos/{ativo_id}/ajuste-manual",

@@ -13,6 +13,7 @@ from app.models.transacao import Transacao
 from app.schemas.transacao import TransacaoCreate
 from app.services.portfolio import processar_transacao, PortfolioError, recalcular_posicoes_carteira
 from app.services.ingestion.classificador_renda_fixa import classificar_renda_fixa
+from app.services.classificador_setor import obter_setor_padrao
 
 ANO_E_VENCIMENTO_NEGOCIACAO = False
 
@@ -161,7 +162,7 @@ def processar_planilha_b3(
                 ticker=ticker,
                 nome=nome_ativo,
                 tipo=tipo_ativo,
-                setor="Tesouro Direto" if info_rf and info_rf.produto.value.startswith("TESOURO_") else None
+                setor=obter_setor_padrao(ticker, tipo_ativo)
             )
             db.add(ativo)
             db.flush()

@@ -18,6 +18,7 @@ from app.schemas.transacao import TransacaoCreate
 from app.services.portfolio import processar_transacao, recalcular_posicoes_carteira, PortfolioError
 from app.services.ingestion.parser_b3 import inferir_tipo_ativo, to_decimal
 from app.services.ingestion.classificador_renda_fixa import classificar_renda_fixa
+from app.services.classificador_setor import obter_setor_padrao
 
 ANO_E_VENCIMENTO_MOVIMENTACAO = False
 ZERO = Decimal("0.0")
@@ -712,7 +713,7 @@ def processar_planilha_movimentacao_b3(
                 ticker=ticker,
                 nome=nome_ativo,
                 tipo=tipo_ativo,
-                setor="Tesouro Direto" if linha.info_rf and linha.info_rf.produto.value.startswith("TESOURO_") else None,
+                setor=obter_setor_padrao(ticker, tipo_ativo),
             )
             db.add(ativo)
             db.flush()

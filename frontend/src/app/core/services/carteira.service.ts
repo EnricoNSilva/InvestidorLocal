@@ -10,6 +10,7 @@ import {
   CotacaoHistoricaResponse,
   CotacoesCarteiraResponse,
   PosicaoConsolidada,
+  ProventosAnuaisCarteiraResponse,
   RetornoImportacao,
   TipoAtivo,
   TipoOperacao,
@@ -129,6 +130,24 @@ export class CarteiraService {
     const id = carteiraId !== undefined ? carteiraId : this.carteiraAtivaId();
     let params = new HttpParams().set('carteira_id', id.toString()).set('forcar', forcar.toString());
     return this.http.get<CotacoesCarteiraResponse>(`${this.baseUrl}/posicoes/cotacoes`, { params });
+  }
+
+  obterProventosAnuais(
+    carteiraId?: number,
+    ativoId?: number,
+    somenteEmCustodia: boolean = false,
+  ): Observable<ProventosAnuaisCarteiraResponse> {
+    const id = carteiraId !== undefined ? carteiraId : this.carteiraAtivaId();
+    let params = new HttpParams()
+      .set('carteira_id', id.toString())
+      .set('somente_em_custodia', somenteEmCustodia.toString());
+    if (ativoId !== undefined) {
+      params = params.set('ativo_id', ativoId.toString());
+    }
+    return this.http.get<ProventosAnuaisCarteiraResponse>(
+      `${this.baseUrl}/posicoes/proventos-anuais`,
+      { params },
+    );
   }
 
   ajustarPosicaoManual(

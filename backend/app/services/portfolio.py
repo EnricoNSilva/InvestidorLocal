@@ -11,7 +11,12 @@ from app.models.posicao import PosicaoConsolidada
 from app.models.renda_fixa import DetalhesRendaFixa
 from app.models.enums import TipoAtivo, TipoOperacao
 from app.schemas.transacao import TransacaoCreate
-from app.schemas.posicao import AjusteManualPosicaoRequest
+from app.schemas.posicao import (
+    AjusteManualPosicaoRequest,
+    ProventoAnoItemRead,
+    ProventosAtivoAnualRead,
+    ProventosAnuaisCarteiraResponse,
+)
 from app.schemas.ativo import ConversaoTickerRequest
 
 # Contexto de alta precisão decimal
@@ -1067,5 +1072,168 @@ def sanear_renda_fixa_banco(db: Session, carteira_id: Optional[int] = None) -> d
         "transacoes_corrigidas": transacoes_corrigidas,
         "mensagem": f"Saneamento de Renda Fixa concluído: {len(ghosts_removidos)} ativos fantasmas removidos, {transacoes_corrigidas} transações corrigidas em {len(carteiras_ids)} carteiras.",
     }
+
+
+def calcular_proventos_anuais_carteira(
+    db: Session,
+    carteira_id: int,
+    ativo_id: Optional[int] = None,
+    somente_em_custodia: bool = False,
+) -> ProventosAnuaisCarteiraResponse:
+    """
+    Calcula o detalhamento ano a ano de proventos recebidos na carteira,
+    separando Dividendos, JSCP (JCP) e Rendimentos, e apurando a proporção percentual
+    (% Dividendo vs. % JCP) com base 100% sobre (Dividendo + JCP).
+    """
+    query = (
+        db.query(Transacao)
+        .filter(Transacao.carteira_id == carteira_id)
+        .filter(
+            Transacao.tipo_operacao.in_(
+                [TipoOperacao.DIVIDENDO, TipoOperacao.JCP, TipoOperacao.RENDIMENTO]
+            )
+        )
+    )
+    if ativo_id is not None:
+        query = query.filter(Transacao.ativo_id == ativo_id)
+
+    txs = query.order_by(Transacao.data_hora.asc()).all()
+
+    # Mapeia posições consolidadas atuais para saber saldo em custódia
+    posicoes = (
+        db.query(PosicaoConsolidada)
+        .filter(PosicaoConsolidada.carteira_id == carteira_id)
+        .all()
+    )
+    pos_map = {p.ativo_id: p for p in posicoes}
+
+    # Mapeia ativos
+    ativo_ids = list({tx.ativo_id for tx in txs})
+    if ativo_id is not None and ativo_id not in ativo_ids:
+        ativo_ids.append(ativo_id)
+    ativos_db = db.query(Ativo).filter(Ativo.id.in_(ativo_ids)).all() if ativo_ids else []
+    ativos_map = {a.id: a for a in ativos_db}
+
+    # Agrupador: dados[ativo_id][ano] = {"div": 0, "jcp": 0, "rend": 0, "qtd_div": 0, "qtd_jcp": 0, "qtd_rend": 0}
+    dados = defaultdict(lambda: defaultdict(lambda: {
+        "div": ZERO,
+        "jcp": ZERO,
+        "rend": ZERO,
+        "qtd_div": 0,
+        "qtd_jcp": 0,
+        "qtd_rend": 0,
+    }))
+
+    for tx in txs:
+        ano = tx.data_hora.year if hasattr(tx.data_hora, "year") else int(str(tx.data_hora)[:4])
+        fator_ptax = tx.ptax_utilizada if tx.ptax_utilizada is not None else Decimal("1.0")
+        valor_liq = max(ZERO, (tx.quantidade * tx.preco_unitario) * fator_ptax - (tx.taxas or ZERO))
+        if tx.moeda in ("BRL", None):
+            valor_liq = round(valor_liq, 2)
+
+        entry = dados[tx.ativo_id][ano]
+        if tx.tipo_operacao == TipoOperacao.DIVIDENDO:
+            entry["div"] += valor_liq
+            entry["qtd_div"] += 1
+        elif tx.tipo_operacao == TipoOperacao.JCP:
+            entry["jcp"] += valor_liq
+            entry["qtd_jcp"] += 1
+        elif tx.tipo_operacao == TipoOperacao.RENDIMENTO:
+            entry["rend"] += valor_liq
+            entry["qtd_rend"] += 1
+
+    ativos_resultado: List[ProventosAtivoAnualRead] = []
+
+    for a_id, anos_dict in dados.items():
+        ativo_obj = ativos_map.get(a_id)
+        if not ativo_obj:
+            continue
+
+        pos_obj = pos_map.get(a_id)
+        quantidade_saldo = pos_obj.quantidade_saldo if pos_obj else ZERO
+        em_custodia = bool(quantidade_saldo > ZERO)
+
+        if somente_em_custodia and not em_custodia:
+            continue
+
+        total_div = ZERO
+        total_jcp = ZERO
+        total_rend = ZERO
+        anos_itens: List[ProventoAnoItemRead] = []
+
+        for ano in sorted(anos_dict.keys()):
+            val = anos_dict[ano]
+            d_val = round(val["div"], 2)
+            j_val = round(val["jcp"], 2)
+            r_val = round(val["rend"], 2)
+            total_div_jcp_ano = round(d_val + j_val, 2)
+            total_geral_ano = round(total_div_jcp_ano + r_val, 2)
+
+            if total_div_jcp_ano > ZERO:
+                pct_div = round((d_val / total_div_jcp_ano) * Decimal("100.0"), 2)
+                pct_jcp = round(Decimal("100.0") - pct_div, 2)
+            else:
+                pct_div = ZERO
+                pct_jcp = ZERO
+
+            total_div += d_val
+            total_jcp += j_val
+            total_rend += r_val
+
+            anos_itens.append(
+                ProventoAnoItemRead(
+                    ano=ano,
+                    dividendos_brl=d_val,
+                    jcp_brl=j_val,
+                    rendimentos_brl=r_val,
+                    total_div_jcp_brl=total_div_jcp_ano,
+                    total_geral_brl=total_geral_ano,
+                    pct_dividendo=pct_div,
+                    pct_jcp=pct_jcp,
+                    qtd_pagamentos_dividendo=val["qtd_div"],
+                    qtd_pagamentos_jcp=val["qtd_jcp"],
+                    qtd_pagamentos_rendimento=val["qtd_rend"],
+                )
+            )
+
+        total_div = round(total_div, 2)
+        total_jcp = round(total_jcp, 2)
+        total_rend = round(total_rend, 2)
+        total_div_jcp_ativo = round(total_div + total_jcp, 2)
+        total_geral_ativo = round(total_div_jcp_ativo + total_rend, 2)
+
+        if total_div_jcp_ativo > ZERO:
+            pct_div_tot = round((total_div / total_div_jcp_ativo) * Decimal("100.0"), 2)
+            pct_jcp_tot = round(Decimal("100.0") - pct_div_tot, 2)
+        else:
+            pct_div_tot = ZERO
+            pct_jcp_tot = ZERO
+
+        ativos_resultado.append(
+            ProventosAtivoAnualRead(
+                ativo_id=ativo_obj.id,
+                ticker=ativo_obj.ticker,
+                nome=ativo_obj.nome,
+                tipo_ativo=ativo_obj.tipo,
+                em_custodia=em_custodia,
+                quantidade_saldo=quantidade_saldo,
+                total_dividendos_brl=total_div,
+                total_jcp_brl=total_jcp,
+                total_rendimentos_brl=total_rend,
+                total_div_jcp_brl=total_div_jcp_ativo,
+                total_geral_brl=total_geral_ativo,
+                pct_dividendo_total=pct_div_tot,
+                pct_jcp_total=pct_jcp_tot,
+                anos=anos_itens,
+            )
+        )
+
+    # Ordena ativos por total_div_jcp_brl desc, depois total_geral desc, depois ticker asc
+    ativos_resultado.sort(
+        key=lambda a: (-a.total_div_jcp_brl, -a.total_geral_brl, a.ticker or "")
+    )
+
+    return ProventosAnuaisCarteiraResponse(carteira_id=carteira_id, ativos=ativos_resultado)
+
 
 
